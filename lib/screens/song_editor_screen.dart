@@ -1,0 +1,154 @@
+import 'package:flutter/material.dart';
+
+import '../models/song.dart';
+import '../services/song_storage.dart';
+
+/// Экран добавления / редактирования песни.
+///
+/// Если [song] == null — создаём новую, иначе редактируем существующую.
+class SongEditorScreen extends StatefulWidget {
+  final Song? song;
+  const SongEditorScreen({super.key, this.song});
+
+  @override
+  State<SongEditorScreen> createState() => _SongEditorScreenState();
+}
+
+class _SongEditorScreenState extends State<SongEditorScreen> {
+  final _storage = SongStorage();
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _contentCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleCtrl = TextEditingController(text: widget.song?.title ?? '');
+    _contentCtrl = TextEditingController(text: widget.song?.content ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _contentCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _hasChanges =>
+      _titleCtrl.text != (widget.song?.title ?? '') ||
+      _contentCtrl.text != (widget.song?.content ?? '');
+
+  Future<void> _save() async {
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Введите название песни')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      final fileName = await _storage.writeSong(
+        desiredTitle: title,
+        content: _contentCtrl.text,
+        oldFileName: widget.song?.fileName,
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pop(
+        Song(fileName: fileName, title: title, content: _contentCtrl.text),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Подтверждение перед закрытием без сохранения.
+  Future<bool> _confirmExit() async {
+    if (!_hasChanges) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Закрыть без сохранения?'),
+        content: const Text('Несохранённые изменения будут потеряны.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.song == null;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        if (await _confirmExit()) nav.pop();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(isNew ? 'Новая песня' : 'Редактировать'),
+          actions: [
+            IconButton(
+              tooltip: 'Сохранить',
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check),
+            ),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _titleCtrl,
+                autofocus: isNew,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Название',
+                  hintText: 'Например, Hotel California',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: TextField(
+                  controller: _contentCtrl,
+                  maxLines: null,
+                  expands: true,
+                  textAlignVertical: TextAlignVertical.top,
+                  style: const TextStyle(fontFamily: 'Roboto Mono', fontSize: 14),
+                  decoration: const InputDecoration(
+                    labelText: 'Текст песни / аккорды / табы',
+                    alignLabelWithHint: true,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
