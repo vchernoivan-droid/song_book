@@ -131,10 +131,55 @@ void main() {
       expect(song.rawContent, '# font: 20\nAm F');
     });
 
-    test('withHeaders склеивает обе шапки', () {
-      expect(Song.withHeaders(transpose: -3, fontSize: 18, body: 'Am'),
-          '# transpose: -3\n# font: 18\nAm');
-      expect(Song.withHeaders(transpose: 0, fontSize: 15, body: 'Am'), 'Am');
+    test('fromRaw читает шапку скорости', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: '# scroll: 22\nAm F',
+      );
+      expect(song.scrollSpeed, 22);
+      expect(song.content, 'Am F');
+    });
+
+    test('scrollSpeed по умолчанию 15', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: 'Am F',
+      );
+      expect(song.scrollSpeed, 15);
+    });
+
+    test('scrollSpeed за пределами 1..60 обрезается', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: '# scroll: 99\nAm F',
+      );
+      expect(song.scrollSpeed, 60);
+    });
+
+    test('rawContent пишет шапку скорости при отличии от 15', () {
+      const song = Song(
+        fileName: 'A.txt',
+        title: 'A',
+        content: 'Am F',
+        scrollSpeed: 22,
+      );
+      expect(song.rawContent, '# scroll: 22\nAm F');
+    });
+
+    test('withHeaders склеивает все шапки', () {
+      expect(
+        Song.withHeaders(
+            transpose: -3, fontSize: 18, scrollSpeed: 22, body: 'Am'),
+        '# transpose: -3\n# font: 18\n# scroll: 22\nAm',
+      );
+      expect(
+        Song.withHeaders(
+            transpose: 0, fontSize: 15, scrollSpeed: 15, body: 'Am'),
+        'Am',
+      );
     });
   });
 }

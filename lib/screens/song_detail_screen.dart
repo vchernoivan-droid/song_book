@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../models/song.dart';
+import '../services/auto_scroll.dart';
 import '../services/chord_transposer.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
@@ -18,13 +20,34 @@ class SongDetailScreen extends StatefulWidget {
   State<SongDetailScreen> createState() => _SongDetailScreenState();
 }
 
-class _SongDetailScreenState extends State<SongDetailScreen> {
+class _SongDetailScreenState extends State<SongDetailScreen>
+    with SingleTickerProviderStateMixin {
   final _storage = SongStorage();
   late Song _song = widget.song;
   late int _semitones = _song.transpose;
   late int _fontSize = _song.fontSize;
+  late int _scrollSpeed = _song.scrollSpeed;
   bool _pretty = true;
   Future<void> _persistChain = Future.value();
+
+  late final Ticker _ticker;
+  final _scrollCtrl = ScrollController();
+  bool _autoScroll = false;
+  double _scrollPxPerSec = 0;
+  Duration _lastElapsed = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
 
   /// Текст, который видит пользователь: исходный или канонический (из модели).
   String get _displayedBody {
@@ -45,6 +68,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         _song = updated;
         _semitones = updated.transpose;
         _fontSize = updated.fontSize;
+        _scrollSpeed = updated.scrollSpeed;
       });
     }
   }
@@ -53,17 +77,24 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final v = value.clamp(-11, 11);
     if (v == _semitones) return;
     setState(() => _semitones = v);
-    _persist(v, _fontSize);
+    _persist(v, _fontSize, _scrollSpeed);
   }
 
   void _setFontSize(int value) {
     final v = value.clamp(10, 28);
     if (v == _fontSize) return;
     setState(() => _fontSize = v);
-    _persist(_semitones, v);
+    _persist(_semitones, v, _scrollSpeed);
   }
 
-  void _persist(int semitones, int fontSize) {
+  void _setScrollSpeed(int value) {
+    final v = value.clamp(1, 60);
+    if (v == _scrollSpeed) return;
+    setState(() => _scrollSpeed = v);
+    _persist(_semitones, _fontSize, v);
+  }
+
+  void _persist(int semitones, int fontSize, int scrollSpeed) {
     // Быстрые нажатия не должны гоняться за файловой записью.
     _persistChain = _persistChain.then((_) async {
       try {
@@ -72,6 +103,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           content: Song.withHeaders(
             transpose: semitones,
             fontSize: fontSize,
+            scrollSpeed: scrollSpeed,
             body: _song.content,
           ),
           oldFileName: _song.fileName,
@@ -80,6 +112,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           fileName: name,
           transpose: semitones,
           fontSize: fontSize,
+          scrollSpeed: scrollSpeed,
         );
       } catch (_) {
         if (mounted) {
@@ -89,6 +122,59 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
         }
       }
     });
+  }
+
+  double _scrollPxPerSecond() {
+    final lineHeight = _fontSize * 1.35;
+    final transposed = transposeSongContent(_song.content, _semitones);
+    final parsed = parseSong(transposed);
+    final body = _pretty ? renderSong(parsed, fromSource: false) : transposed;
+
+    final parts = body.split('\n');
+    var physical = parts.length;
+    if (parts.isNotEmpty && parts.last.isEmpty) physical--;
+
+    var tokenLines = physical;
+    if (_pretty) {
+      tokenLines =
+          parsed.sections.fold(0, (sum, s) => sum + s.lines.length);
+    }
+    return autoScrollPxPerSecond(
+      linesPerMinute: _scrollSpeed,
+      tokenLines: tokenLines,
+      physicalLines: physical,
+      lineHeight: lineHeight,
+    );
+  }
+
+  void _onTick(Duration elapsed) {
+    if (!_scrollCtrl.hasClients) return;
+    final dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
+    _lastElapsed = elapsed;
+    final max = _scrollCtrl.position.maxScrollExtent;
+    final next = _scrollCtrl.offset + _scrollPxPerSec * dt;
+    if (next >= max) {
+      _scrollCtrl.jumpTo(max);
+      _stopAutoScroll();
+      return;
+    }
+    _scrollCtrl.jumpTo(next);
+  }
+
+  Future<void> _startAutoScroll() async {
+    setState(() {
+      _autoScroll = true;
+      _scrollPxPerSec = _scrollPxPerSecond();
+    });
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted || !_autoScroll) return;
+    _lastElapsed = Duration.zero;
+    _ticker.start();
+  }
+
+  void _stopAutoScroll() {
+    _ticker.stop();
+    if (mounted) setState(() => _autoScroll = false);
   }
 
   Future<void> _delete() async {
@@ -118,6 +204,72 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   String get _semitonesLabel {
     final v = _semitones;
     return v == 0 ? '0' : v > 0 ? '+$v' : '$v';
+  }
+
+  Widget _buildAutoScrollBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: _autoScroll ? 'Пауза' : 'Автоскролл',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(_autoScroll ? Icons.pause : Icons.play_arrow),
+              onPressed: () {
+                if (_autoScroll) {
+                  _stopAutoScroll();
+                } else {
+                  _startAutoScroll();
+                }
+              },
+            ),
+            IconButton(
+              tooltip: 'Медленнее',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.remove),
+              onPressed: () => _setScrollSpeed(_scrollSpeed - 1),
+            ),
+            Text(
+              '$_scrollSpeed строк/мин',
+              style: const TextStyle(
+                fontSize: 12,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Быстрее',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.add),
+              onPressed: () => _setScrollSpeed(_scrollSpeed + 1),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: AnimatedBuilder(
+                  animation: _scrollCtrl,
+                  builder: (_, _) {
+                    final max = _scrollCtrl.hasClients
+                        ? _scrollCtrl.position.maxScrollExtent
+                        : 0.0;
+                    final value = max <= 0
+                        ? 0.0
+                        : (_scrollCtrl.offset / max).clamp(0.0, 1.0);
+                    return LinearProgressIndicator(value: value);
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -214,9 +366,17 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        child: SelectableText(displayed, style: mono),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              child: SelectableText(displayed, style: mono),
+            ),
+          ),
+          _buildAutoScrollBar(),
+        ],
       ),
     );
   }

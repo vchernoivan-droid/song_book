@@ -33,6 +33,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   late final String _origContent;
   late final int _transpose = widget.song?.transpose ?? 0;
   late final int _fontSize = widget.song?.fontSize ?? 15;
+  late final int _scrollSpeed = widget.song?.scrollSpeed ?? 15;
   bool _saving = false;
 
   @override
@@ -72,6 +73,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         content: Song.withHeaders(
           transpose: _transpose,
           fontSize: _fontSize,
+          scrollSpeed: _scrollSpeed,
           body: _contentCtrl.text,
         ),
         oldFileName: widget.song?.fileName,
@@ -85,6 +87,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
           content: _contentCtrl.text,
           transpose: _transpose,
           fontSize: _fontSize,
+          scrollSpeed: _scrollSpeed,
         ),
       );
     } finally {
