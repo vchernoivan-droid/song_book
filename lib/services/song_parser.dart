@@ -91,36 +91,36 @@ class RawToken extends Token {
 }
 
 class AnnotationToken extends Token {
+  /// Хвостовая пометка строки текста («(2 раза)»).
   final String text;
 
-  /// Хвост аккордной строки (true) или строки текста (false) — рендерится
-  /// в конце своей физической строки.
-  final bool chordLine;
-
-  const AnnotationToken(this.text, {required this.chordLine});
+  const AnnotationToken(this.text);
 
   @override
-  bool operator ==(Object other) =>
-      other is AnnotationToken &&
-      other.text == text &&
-      other.chordLine == chordLine;
-
-  @override
-  int get hashCode => Object.hash(text, chordLine);
-}
-
-class InlineToken extends Token {
-  /// Не-аккордный кусок между двумя аккордами (например, «~» в «G#7~A7») —
-  /// рендерится вплотную к соседям на аккордной строке.
-  final String text;
-
-  const InlineToken(this.text);
-
-  @override
-  bool operator ==(Object other) => other is InlineToken && other.text == text;
+  bool operator ==(Object other) => other is AnnotationToken && other.text == text;
 
   @override
   int get hashCode => text.hashCode;
+}
+
+class InlineToken extends Token {
+  /// Не-аккордный кусок аккордной строки: «~» между аккордами
+  /// (endOfLine: false) или хвостовая пометка после аккордов
+  /// («2x», «// комментарий», endOfLine: true).
+  final String text;
+
+  final bool endOfLine;
+
+  const InlineToken(this.text, {this.endOfLine = false});
+
+  @override
+  bool operator ==(Object other) =>
+      other is InlineToken &&
+      other.text == text &&
+      other.endOfLine == endOfLine;
+
+  @override
+  int get hashCode => Object.hash(text, endOfLine);
 }
 
 /// Строка песни. Слитная пара «аккорды + текст» — одна [Line]: первый
@@ -262,7 +262,7 @@ Line _lyricLine(String line) {
     for (final m in RegExp(r'\S+').allMatches(head)) WordToken(m[0]!),
   ];
   if (split != null) {
-    tokens.add(AnnotationToken(split.annotation, chordLine: false));
+    tokens.add(AnnotationToken(split.annotation));
   }
   return Line(tokens, source: line);
 }
@@ -281,12 +281,10 @@ Line _progressionLine(String line) {
     final text = (p as GapPiece).text.trim();
     if (text.isEmpty) continue;
     final hasChordAfter = pieces.skip(i + 1).any((x) => x is ChordPiece);
-    tokens.add(hasChordAfter
-        ? InlineToken(text)
-        : AnnotationToken(text, chordLine: true));
+    tokens.add(InlineToken(text, endOfLine: !hasChordAfter));
   }
   if (split != null) {
-    tokens.add(AnnotationToken(split.annotation, chordLine: true));
+    tokens.add(InlineToken(split.annotation, endOfLine: true));
   }
   return Line(tokens, source: line);
 }
@@ -305,34 +303,43 @@ Line _mergePair(String over, String under) {
   final chordPart = overSplit?.head ?? over;
   final wordPart = underSplit?.head ?? under;
 
-  final overs = RegExp(r'\S+').allMatches(chordPart).toList();
   final words = RegExp(r'\S+').allMatches(wordPart).toList();
-
-  final bound = <int>[];
-  for (final o in overs) {
-    var w = 0;
-    while (w + 1 < words.length && words[w + 1].start <= o.start) {
-      w++;
-    }
-    bound.add(w);
-  }
+  final pieces = scanChordLine(chordPart);
 
   final lastWordEnd = words.last.start + words.last[0]!.length;
   final wordChords = List<Chord?>.filled(words.length, null);
   final extras = List.generate(words.length, (_) => <Token>[]);
   final lineEnd = <Token>[];
+  var prevChordWord = 0;
 
-  for (var i = 0; i < overs.length; i++) {
-    final token = _overToken(overs[i]);
-    final w = bound[i];
-    final beyondWords = w == words.length - 1 && overs[i].start >= lastWordEnd;
-    if (beyondWords && token is ChordToken) {
-      lineEnd.add(ChordToken(token.chord, endOfLine: true));
-    } else if (token is ChordToken && wordChords[w] == null) {
-      wordChords[w] = token.chord;
-    } else {
-      extras[w].add(token);
+  for (final p in pieces) {
+    if (p is GapPiece) {
+      final text = p.text.trim();
+      if (text.isEmpty) continue;
+      final hasChordAfter =
+          pieces.any((x) => x is ChordPiece && x.start >= p.end);
+      if (hasChordAfter) {
+        extras[prevChordWord].add(InlineToken(text));
+      } else {
+        lineEnd.add(InlineToken(text, endOfLine: true));
+      }
+      continue;
     }
+
+    final chord = p as ChordPiece;
+    var w = 0;
+    while (w + 1 < words.length && words[w + 1].start <= chord.start) {
+      w++;
+    }
+    final beyondWords = w == words.length - 1 && chord.start >= lastWordEnd;
+    if (beyondWords) {
+      lineEnd.add(ChordToken(chord.chord, endOfLine: true));
+    } else if (wordChords[w] == null) {
+      wordChords[w] = chord.chord;
+    } else {
+      extras[w].add(ChordToken(chord.chord));
+    }
+    prevChordWord = w;
   }
 
   final tokens = <Token>[];
@@ -342,17 +349,12 @@ Line _mergePair(String over, String under) {
   }
   tokens.addAll(lineEnd);
   if (overSplit != null) {
-    tokens.add(AnnotationToken(overSplit.annotation, chordLine: true));
+    tokens.add(InlineToken(overSplit.annotation, endOfLine: true));
   }
   if (underSplit != null) {
-    tokens.add(AnnotationToken(underSplit.annotation, chordLine: false));
+    tokens.add(AnnotationToken(underSplit.annotation));
   }
   return Line(tokens, source: '$over\n$under');
-}
-
-Token _overToken(RegExpMatch m) {
-  final chord = parseChord(m[0]!);
-  return chord == null ? RawToken(m[0]!) : ChordToken(chord);
 }
 
 /// Кусок аккордной строки: аккорд или не-аккордный текст между ними.
@@ -445,9 +447,10 @@ String _renderProgression(List<Token> tokens) {
         if (out.isNotEmpty && !prevInline) out.write('   ');
         out.write(chord.display);
         prevInline = false;
-      case InlineToken(:final text):
+      case InlineToken(:final text, :final endOfLine):
+        if (endOfLine && out.isNotEmpty) out.write(' ');
         out.write(text);
-        prevInline = true;
+        prevInline = !endOfLine;
       case RawToken(:final text):
         if (out.isNotEmpty && !prevInline) out.write('   ');
         out.write(text);
@@ -467,52 +470,49 @@ String _renderProgression(List<Token> tokens) {
 /// аннотации — в конце своей физической строки.
 String _renderMerged(List<Token> tokens) {
   final words = <String>[];
-  final blocks = <({int word, String text, bool endOfLine})>[];
-  final chordAnnots = <String>[];
+  final blocks = <({int word, String text, bool endOfLine, bool glue})>[];
   final wordAnnots = <String>[];
+  var prevInline = false;
   for (final t in tokens) {
     switch (t) {
       case WordToken(:final text, :final chord):
         words.add(text);
+        prevInline = false;
         if (chord != null) {
           blocks.add((
-              word: words.length - 1, text: chord.display, endOfLine: false));
+            word: words.length - 1,
+            text: chord.display,
+            endOfLine: false,
+            glue: false,
+          ));
         }
       case ChordToken(:final chord, :final endOfLine):
         blocks.add((
-          word: words.isEmpty ? 0 : words.length - 1,
+          word: words.length - 1,
           text: chord.display,
           endOfLine: endOfLine,
+          glue: prevInline,
         ));
+        prevInline = false;
       case RawToken(:final text):
         blocks.add((
-          word: words.isEmpty ? 0 : words.length - 1,
+          word: words.length - 1,
           text: text,
           endOfLine: false,
+          glue: prevInline,
         ));
-      case InlineToken(:final text):
+        prevInline = false;
+      case InlineToken(:final text, :final endOfLine):
         blocks.add((
-          word: words.isEmpty ? 0 : words.length - 1,
+          word: words.length - 1,
           text: text,
-          endOfLine: false,
+          endOfLine: endOfLine,
+          glue: !endOfLine,
         ));
-      case AnnotationToken(:final text, :final chordLine):
-        if (chordLine && words.isNotEmpty) {
-          blocks.add((
-            word: words.length - 1,
-            text: text,
-            endOfLine: true,
-          ));
-        } else if (chordLine) {
-          chordAnnots.add(text);
-        } else {
-          wordAnnots.add(text);
-        }
+        prevInline = !endOfLine;
+      case AnnotationToken(:final text):
+        wordAnnots.add(text);
     }
-  }
-  if (words.isEmpty) {
-    return blocks.map((b) => b.text).join('   ') +
-        chordAnnots.map((a) => ' $a').join();
   }
 
   final wordStarts = <int>[];
@@ -526,7 +526,9 @@ String _renderMerged(List<Token> tokens) {
   var chordLine = '';
   for (final b in blocks) {
     var start = b.endOfLine ? afterLastWord : wordStarts[b.word];
-    if (chordLine.isNotEmpty && start <= chordLine.length) {
+    if (b.glue) {
+      start = chordLine.length;
+    } else if (chordLine.isNotEmpty && start <= chordLine.length) {
       start = chordLine.length + 1;
     }
     chordLine += ' ' * (start - chordLine.length) + b.text;

@@ -124,10 +124,11 @@ void main() {
       expect(line.source, tab);
     });
 
-    test('нераспознанный токен в строке аккордов — RawToken', () {
+    test('хвостовая пометка в строке аккордов — InlineToken', () {
       final s = parseSong('Am F 2x\nтекст текст текст\n');
       final tokens = s.sections.single.lines.first.tokens;
-      expect(tokens.whereType<RawToken>().single.text, '2x');
+      expect(tokens.whereType<InlineToken>().single,
+          const InlineToken('2x', endOfLine: true));
     });
   });
 
@@ -204,9 +205,8 @@ void main() {
       expect(s.lines.first.tokens, [
         word('Говорит,', 'G'),
         word('послухайте', 'C'),
-        const AnnotationToken('// you can do C7 here', chordLine: true),
-        AnnotationToken('/\u0024%^&/ slower than  in the chorus',
-            chordLine: false),
+        const InlineToken('// you can do C7 here', endOfLine: true),
+        AnnotationToken('/\u0024%^&/ slower than  in the chorus'),
       ]);
     });
 
@@ -230,7 +230,7 @@ void main() {
     test('прогрессия с аннотацией', () {
       final s = parseSong('Am F // быстро\n').sections.single;
       expect(s.lines.single.tokens,
-          [chord('Am'), chord('F'), const AnnotationToken('// быстро', chordLine: true)]);
+          [chord('Am'), chord('F'), const InlineToken('// быстро', endOfLine: true)]);
       expect(renderSong(parseSong('Am F // быстро\n'), fromSource: false),
           'Am   F // быстро\n');
     });
@@ -239,7 +239,7 @@ void main() {
       final s = parseSong('Припев (2 раза)\n').sections.single;
       expect(s.lines.single.tokens, [
         word('Припев'),
-        const AnnotationToken('(2 раза)', chordLine: false),
+        const AnnotationToken('(2 раза)'),
       ]);
       expect(renderSong(parseSong('Припев (2 раза)\n'), fromSource: false),
           'Припев (2 раза)\n');
@@ -349,6 +349,20 @@ void main() {
       expect(renderSong(parseSong('Em75-   G#7~A7 G#7~A7 Dm\n'),
           fromSource: false),
           'Em75-   G#7~A7   G#7~A7   Dm\n');
+    });
+
+    test('аккорды над текстом: G#7~A7 разбивается на аккорды и ~', () {
+      final s = parseSong('G#7~A7\nслово\n').sections.single;
+      expect(s.lines.single.tokens, [
+        word('слово', 'G#7'),
+        const InlineToken('~'),
+        chord('A7'),
+      ]);
+    });
+
+    test('аккорды над текстом: ~ рендерится вплотную', () {
+      expect(renderSong(parseSong('G#7~A7\nслово\n'), fromSource: false),
+          'G#7~A7\nслово\n');
     });
   });
 }
