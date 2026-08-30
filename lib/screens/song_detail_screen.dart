@@ -255,12 +255,15 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                 child: AnimatedBuilder(
                   animation: _scrollCtrl,
                   builder: (_, _) {
-                    final max = _scrollCtrl.hasClients
-                        ? _scrollCtrl.position.maxScrollExtent
-                        : 0.0;
-                    final value = max <= 0
-                        ? 0.0
-                        : (_scrollCtrl.offset / max).clamp(0.0, 1.0);
+                    final pos = _scrollCtrl.hasClients
+                        ? _scrollCtrl.position
+                        : null;
+                    if (pos == null || !pos.hasContentDimensions) {
+                      return const LinearProgressIndicator(value: 0);
+                    }
+                    final max = pos.maxScrollExtent;
+                    final value =
+                        max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
                     return LinearProgressIndicator(value: value);
                   },
                 ),
