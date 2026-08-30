@@ -103,9 +103,36 @@ void main() {
       ]);
     });
 
-    test('аккорд левее начала первого слова — к первому слову', () {
+    test('аккорд левее первого слова — отдельное пустое слово', () {
       final s = parseSong('Am\n   On and on\n').sections.single;
-      expect(s.lines.first.tokens.first, word('On', 'Am'));
+      expect(s.lines.first.tokens, [
+        word('', 'Am'),
+        word('On'),
+        word('and'),
+        word('on'),
+      ]);
+    });
+
+    test('аккорд над пробелом между словами — отдельное пустое слово', () {
+      const chordLine = '    A7       G#7~ A7           G#7 A7  Am';
+      const wordLine = 'Где чинара        притулилась      под скалою,';
+      final s = parseSong('$chordLine\n$wordLine\n').sections.single;
+      expect(s.lines.single.tokens, [
+        word('Где'),
+        word('чинара', 'A7'),
+        word('', 'G#7'),
+        const InlineToken('~'),
+        word('притулилась', 'A7'),
+        word('', 'G#7'),
+        word('под', 'A7'),
+        word('скалою,', 'Am'),
+      ]);
+    });
+
+    test('round-trip висячих аккордов идентичен', () {
+      const content = '    A7       G#7~ A7           G#7 A7  Am\n'
+          'Где чинара        притулилась      под скалою,\n';
+      expect(renderSong(parseSong(content)), content);
     });
 
     test('аккорды без текста — прогрессия', () {
@@ -319,6 +346,15 @@ void main() {
       expect(renderSong(parseSong('текст   с   двойными   пробелами\n'),
           fromSource: false),
           'текст с двойными пробелами\n');
+    });
+
+    test('висячие аккорды рендерятся в зазорах, не наезжая на слова', () {
+      const chordLine = '    A7       G#7~ A7           G#7 A7  Am';
+      const wordLine = 'Где чинара        притулилась      под скалою,';
+      final s = parseSong('$chordLine\n$wordLine\n');
+      expect(renderSong(s, fromSource: false),
+          '    A7     G#7~ A7          G#7 A7  Am\n'
+          'Где чинара      притулилась     под скалою,\n');
     });
   });
 

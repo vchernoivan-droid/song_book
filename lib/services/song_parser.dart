@@ -291,26 +291,55 @@ Line _progressionLine(String line) {
 
 /// Склеивает пару физических строк в одну [Line].
 ///
-/// Аккорд относится к последнему слову, начинающемуся не позже его колонки
-/// (округление назад — в разборах из интернета аккорды обычно «уехавшие»
-/// вправо, а не влево); аккорд левее первого слова — к первому слову.
-/// Первый аккорд слова становится полем [WordToken.chord], следующие —
-/// токенами сразу после слова; аккорд правее конца последнего слова —
-/// токеном конца строки. Хвосты-аннотации обеих строк — [AnnotationToken].
+/// Аккорд привязывается к слову, только если их колонки пересекаются;
+/// аккорд над пробелом между словами становится отдельным пустым словом
+/// [WordToken] с этим аккордом. Первый аккорд слова — поле [WordToken.chord],
+/// следующие — токенами сразу после слова; аккорд правее конца последнего
+/// слова — токеном конца строки. Хвосты-аннотации — [InlineToken]/[AnnotationToken].
 Line _mergePair(String over, String under) {
   final overSplit = _splitAnnotation(over, _isChordTokenText);
   final underSplit = _splitAnnotation(under, _isWordTokenText);
   final chordPart = overSplit?.head ?? over;
   final wordPart = underSplit?.head ?? under;
 
-  final words = RegExp(r'\S+').allMatches(wordPart).toList();
+  final wordMatches = RegExp(r'\S+').allMatches(wordPart).toList();
   final pieces = scanChordLine(chordPart);
 
-  final lastWordEnd = words.last.start + words.last[0]!.length;
-  final wordChords = List<Chord?>.filled(words.length, null);
-  final extras = List.generate(words.length, (_) => <Token>[]);
+  final slotText = <String>[];
+  final slotStart = <int>[];
+  final slotChord = <Chord?>[];
+  final slotExtras = <List<Token>>[];
+  for (final m in wordMatches) {
+    slotText.add(m[0]!);
+    slotStart.add(m.start);
+    slotChord.add(null);
+    slotExtras.add(<Token>[]);
+  }
+
+  final lastWordEnd = wordMatches.last.start + wordMatches.last[0]!.length;
   final lineEnd = <Token>[];
-  var prevChordWord = 0;
+  var lastChordSlot = -1;
+
+  int chordSlot(ChordPiece p) {
+    for (var i = 0; i < slotText.length; i++) {
+      if (slotText[i].isEmpty) continue;
+      final wordEnd = slotStart[i] + slotText[i].length;
+      if (p.start < wordEnd && p.end > slotStart[i]) return i;
+    }
+    return -1;
+  }
+
+  int insertEmptySlot(int column) {
+    var i = 0;
+    while (i < slotStart.length && slotStart[i] < column) {
+      i++;
+    }
+    slotStart.insert(i, column);
+    slotText.insert(i, '');
+    slotChord.insert(i, null);
+    slotExtras.insert(i, <Token>[]);
+    return i;
+  }
 
   for (final p in pieces) {
     if (p is GapPiece) {
@@ -319,7 +348,9 @@ Line _mergePair(String over, String under) {
       final hasChordAfter =
           pieces.any((x) => x is ChordPiece && x.start >= p.end);
       if (hasChordAfter) {
-        extras[prevChordWord].add(InlineToken(text));
+        if (lastChordSlot >= 0) {
+          slotExtras[lastChordSlot].add(InlineToken(text));
+        }
       } else {
         lineEnd.add(InlineToken(text, endOfLine: true));
       }
@@ -327,25 +358,29 @@ Line _mergePair(String over, String under) {
     }
 
     final chord = p as ChordPiece;
-    var w = 0;
-    while (w + 1 < words.length && words[w + 1].start <= chord.start) {
-      w++;
-    }
-    final beyondWords = w == words.length - 1 && chord.start >= lastWordEnd;
-    if (beyondWords) {
-      lineEnd.add(ChordToken(chord.chord, endOfLine: true));
-    } else if (wordChords[w] == null) {
-      wordChords[w] = chord.chord;
+    final slot = chordSlot(chord);
+    if (slot == -1) {
+      if (chord.start >= lastWordEnd) {
+        lineEnd.add(ChordToken(chord.chord, endOfLine: true));
+        lastChordSlot = -1;
+      } else {
+        final s = insertEmptySlot(chord.start);
+        slotChord[s] = chord.chord;
+        lastChordSlot = s;
+      }
+    } else if (slotChord[slot] == null) {
+      slotChord[slot] = chord.chord;
+      lastChordSlot = slot;
     } else {
-      extras[w].add(ChordToken(chord.chord));
+      slotExtras[slot].add(ChordToken(chord.chord));
+      lastChordSlot = slot;
     }
-    prevChordWord = w;
   }
 
   final tokens = <Token>[];
-  for (var w = 0; w < words.length; w++) {
-    tokens.add(WordToken(words[w][0]!, chord: wordChords[w]));
-    tokens.addAll(extras[w]);
+  for (var i = 0; i < slotText.length; i++) {
+    tokens.add(WordToken(slotText[i], chord: slotChord[i]));
+    tokens.addAll(slotExtras[i]);
   }
   tokens.addAll(lineEnd);
   if (overSplit != null) {
@@ -465,112 +500,62 @@ String _renderProgression(List<Token> tokens) {
   return out.toString();
 }
 
-/// Пересборка слитной строки: аккорд слова — над его началом, доп. смены —
-/// рядом с коллизионным сдвигом, аккорды конца строки — за последним словом,
-/// аннотации — в конце своей физической строки.
+/// Пересборка слитной строки единым проходом слева направо: слово и его
+/// первый аккорд встают в одну колонку, доп. аккорды и висячие аккорды
+/// расталкивают зазор, аккорды конца строки — за последним словом.
 String _renderMerged(List<Token> tokens) {
-  final words = <String>[];
-  final blocks =
-      <({int word, String text, bool endOfLine, bool glue, bool wordChord})>[];
+  final chords = StringBuffer();
+  final words = StringBuffer();
   final wordAnnots = <String>[];
   var prevInline = false;
+
+  int mx(int a, int b) => a > b ? a : b;
+
   for (final t in tokens) {
     switch (t) {
       case WordToken(:final text, :final chord):
-        words.add(text);
-        prevInline = false;
+        final s = (words.isEmpty && chords.isEmpty)
+            ? 0
+            : mx(words.length + 1, chords.length + 1);
+        words.write(' ' * (s - words.length) + text);
         if (chord != null) {
-          blocks.add((
-            word: words.length - 1,
-            text: chord.display,
-            endOfLine: false,
-            glue: false,
-            wordChord: true,
-          ));
+          chords.write(' ' * (s - chords.length) + chord.display);
         }
-      case ChordToken(:final chord, :final endOfLine):
-        blocks.add((
-          word: words.length - 1,
-          text: chord.display,
-          endOfLine: endOfLine,
-          glue: prevInline,
-          wordChord: false,
-        ));
         prevInline = false;
-      case RawToken(:final text):
-        blocks.add((
-          word: words.length - 1,
-          text: text,
-          endOfLine: false,
-          glue: prevInline,
-          wordChord: false,
-        ));
+      case ChordToken(:final chord, :final endOfLine):
+        if (endOfLine) {
+          final s = mx(words.length + 1, chords.length + 1);
+          chords.write(' ' * (s - chords.length) + chord.display);
+        } else {
+          final s = prevInline
+              ? chords.length
+              : (chords.isEmpty ? 0 : chords.length + 1);
+          chords.write(' ' * (s - chords.length) + chord.display);
+        }
         prevInline = false;
       case InlineToken(:final text, :final endOfLine):
-        blocks.add((
-          word: words.length - 1,
-          text: text,
-          endOfLine: endOfLine,
-          glue: !endOfLine,
-          wordChord: false,
-        ));
-        prevInline = !endOfLine;
+        if (endOfLine) {
+          final s = mx(words.length + 1, chords.length + 1);
+          chords.write(' ' * (s - chords.length) + text);
+          prevInline = false;
+        } else {
+          chords.write(text);
+          prevInline = true;
+        }
+      case RawToken(:final text):
+        final s = prevInline
+            ? chords.length
+            : (chords.isEmpty ? 0 : chords.length + 1);
+        chords.write(' ' * (s - chords.length) + text);
+        prevInline = false;
       case AnnotationToken(:final text):
         wordAnnots.add(text);
+        prevInline = false;
     }
   }
 
-  final naturalStarts = <int>[];
-  var col = 0;
-  for (final w in words) {
-    naturalStarts.add(col);
-    col += w.length + 1;
-  }
-
-  final firstChordCol = List<int?>.filled(words.length, null);
-  var chordLine = '';
-
-  for (final b in blocks.where((b) => !b.endOfLine)) {
-    if (b.glue) {
-      chordLine += b.text;
-      continue;
-    }
-    var start = naturalStarts[b.word];
-    if (chordLine.isNotEmpty && start <= chordLine.length) {
-      start = chordLine.length + 1;
-    }
-    chordLine += ' ' * (start - chordLine.length) + b.text;
-    if (b.wordChord) firstChordCol[b.word] = start;
-  }
-
-  final wordPos = List<int>.filled(words.length, 0);
-  for (var w = 0; w < words.length; w++) {
-    var pos = naturalStarts[w];
-    final chordCol = firstChordCol[w];
-    if (chordCol != null && chordCol > pos) pos = chordCol;
-    if (w > 0) {
-      final prevEnd = wordPos[w - 1] + words[w - 1].length;
-      if (pos <= prevEnd) pos = prevEnd + 1;
-    }
-    wordPos[w] = pos;
-  }
-  final afterLastWord = wordPos.last + words.last.length + 1;
-
-  for (final b in blocks.where((b) => b.endOfLine)) {
-    var start = afterLastWord;
-    if (chordLine.isNotEmpty && start <= chordLine.length) {
-      start = chordLine.length + 1;
-    }
-    chordLine += ' ' * (start - chordLine.length) + b.text;
-  }
-
-  final wordLine = StringBuffer();
-  for (var w = 0; w < words.length; w++) {
-    wordLine.write(' ' * (wordPos[w] - wordLine.length));
-    wordLine.write(words[w]);
-  }
-  wordLine.write(wordAnnots.map((a) => ' $a').join());
-  return chordLine.isEmpty ? wordLine.toString() : '$chordLine\n$wordLine';
+  words.write(wordAnnots.map((a) => ' $a').join());
+  return chords.isEmpty ? words.toString() : '$chords\n$words';
 }
 
 // ---------------------------------------------------------------------------
