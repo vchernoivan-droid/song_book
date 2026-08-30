@@ -151,6 +151,15 @@ void main() {
       expect(renderSong(song), 'Am Dm\nOn\n');
     });
 
+    test('слово выравнивается под аккорд, сдвинутый доп. аккордами', () {
+      final song = ParsedSong([
+        Section(lines: [
+          Line([word('ah', 'A'), chord('B'), chord('C'), word('boo', 'Bb')]),
+        ]),
+      ]);
+      expect(renderSong(song), 'A B C Bb\nah    boo\n');
+    });
+
     test('хвостовой аккорд — за последним словом', () {
       final song = ParsedSong([
         Section(lines: [

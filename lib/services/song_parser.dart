@@ -470,7 +470,8 @@ String _renderProgression(List<Token> tokens) {
 /// аннотации — в конце своей физической строки.
 String _renderMerged(List<Token> tokens) {
   final words = <String>[];
-  final blocks = <({int word, String text, bool endOfLine, bool glue})>[];
+  final blocks =
+      <({int word, String text, bool endOfLine, bool glue, bool wordChord})>[];
   final wordAnnots = <String>[];
   var prevInline = false;
   for (final t in tokens) {
@@ -484,6 +485,7 @@ String _renderMerged(List<Token> tokens) {
             text: chord.display,
             endOfLine: false,
             glue: false,
+            wordChord: true,
           ));
         }
       case ChordToken(:final chord, :final endOfLine):
@@ -492,6 +494,7 @@ String _renderMerged(List<Token> tokens) {
           text: chord.display,
           endOfLine: endOfLine,
           glue: prevInline,
+          wordChord: false,
         ));
         prevInline = false;
       case RawToken(:final text):
@@ -500,6 +503,7 @@ String _renderMerged(List<Token> tokens) {
           text: text,
           endOfLine: false,
           glue: prevInline,
+          wordChord: false,
         ));
         prevInline = false;
       case InlineToken(:final text, :final endOfLine):
@@ -508,6 +512,7 @@ String _renderMerged(List<Token> tokens) {
           text: text,
           endOfLine: endOfLine,
           glue: !endOfLine,
+          wordChord: false,
         ));
         prevInline = !endOfLine;
       case AnnotationToken(:final text):
@@ -515,28 +520,57 @@ String _renderMerged(List<Token> tokens) {
     }
   }
 
-  final wordStarts = <int>[];
+  final naturalStarts = <int>[];
   var col = 0;
   for (final w in words) {
-    wordStarts.add(col);
+    naturalStarts.add(col);
     col += w.length + 1;
   }
-  final afterLastWord = wordStarts.last + words.last.length + 1;
 
+  final firstChordCol = List<int?>.filled(words.length, null);
   var chordLine = '';
-  for (final b in blocks) {
-    var start = b.endOfLine ? afterLastWord : wordStarts[b.word];
+
+  for (final b in blocks.where((b) => !b.endOfLine)) {
     if (b.glue) {
-      start = chordLine.length;
-    } else if (chordLine.isNotEmpty && start <= chordLine.length) {
+      chordLine += b.text;
+      continue;
+    }
+    var start = naturalStarts[b.word];
+    if (chordLine.isNotEmpty && start <= chordLine.length) {
+      start = chordLine.length + 1;
+    }
+    chordLine += ' ' * (start - chordLine.length) + b.text;
+    if (b.wordChord) firstChordCol[b.word] = start;
+  }
+
+  final wordPos = List<int>.filled(words.length, 0);
+  for (var w = 0; w < words.length; w++) {
+    var pos = naturalStarts[w];
+    final chordCol = firstChordCol[w];
+    if (chordCol != null && chordCol > pos) pos = chordCol;
+    if (w > 0) {
+      final prevEnd = wordPos[w - 1] + words[w - 1].length;
+      if (pos <= prevEnd) pos = prevEnd + 1;
+    }
+    wordPos[w] = pos;
+  }
+  final afterLastWord = wordPos.last + words.last.length + 1;
+
+  for (final b in blocks.where((b) => b.endOfLine)) {
+    var start = afterLastWord;
+    if (chordLine.isNotEmpty && start <= chordLine.length) {
       start = chordLine.length + 1;
     }
     chordLine += ' ' * (start - chordLine.length) + b.text;
   }
 
-  var wordLine = words.join(' ');
-  wordLine += wordAnnots.map((a) => ' $a').join();
-  return chordLine.isEmpty ? wordLine : '$chordLine\n$wordLine';
+  final wordLine = StringBuffer();
+  for (var w = 0; w < words.length; w++) {
+    wordLine.write(' ' * (wordPos[w] - wordLine.length));
+    wordLine.write(words[w]);
+  }
+  wordLine.write(wordAnnots.map((a) => ' $a').join());
+  return chordLine.isEmpty ? wordLine.toString() : '$chordLine\n$wordLine';
 }
 
 // ---------------------------------------------------------------------------
