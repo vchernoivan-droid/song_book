@@ -1,17 +1,26 @@
 # song_book
 
-A new Flutter project.
+Приложение для просмотра текстов песен с аккордами и табулатурами.
 
-## Getting Started
+Каждая песня — отдельный `.txt`-файл в каталоге приложения (мобильные/десктоп)
+или запись в `shared_preferences` (веб).
 
-This project is a starting point for a Flutter application.
+## Подбор песен
 
-A few resources to get you started if this is your first Flutter project:
+Если локально ничего не нашлось, песню можно подобрать заново:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- **Мобильные / десктоп** — текст с аккордами генерирует **DeepSeek** (нужен
+  API-ключ): кнопка «Спросить ИИ» → текст → «Сохранить». Ключ вводится в
+  приложении («Настроить ключ DeepSeek») и хранится только на устройстве.
+- **Веб** — по кнопке «Спросить ИИ» открывается чат DeepSeek в новой вкладке
+  (на вебе к API DeepSeek мешает достучаться CORS).
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Ключ DeepSeek
+
+1. Создайте ключ: <https://platform.deepseek.com/api_keys>.
+2. Пополните баланс (запросы платные по токенам, очень дёшево).
+3. Введите ключ в приложении: «Настроить ключ DeepSeek».
+
+> Текст генерирует языковая модель — аккорды могут содержать ошибки,
+> всегда проверяйте перед сохранением. Полные тексты защищённых авторским
+> правом песен модель может отказываться воспроизводить.

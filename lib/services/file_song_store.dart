@@ -60,10 +60,10 @@ class FileSongStorage implements SongStorage {
     final songs = <Song>[];
     for (final f in files) {
       final name = p.basename(f.path);
-      songs.add(Song(
+      songs.add(Song.fromRaw(
         fileName: name,
         title: _titleFromName(name),
-        content: f.readAsStringSync(),
+        rawContent: f.readAsStringSync(),
       ));
     }
     return songs;

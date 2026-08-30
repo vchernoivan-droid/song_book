@@ -1,7 +1,12 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
+import '../services/browser_launcher.dart';
+import '../services/deepseek_credentials.dart';
 import '../services/song_storage.dart';
+import 'deepseek_settings_screen.dart';
+import 'deepseek_song_screen.dart';
 import 'song_detail_screen.dart';
 import 'song_editor_screen.dart';
 
@@ -23,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<SongWithPreview> _songs = [];
   bool _loading = true;
+  bool _deepseekConfigured = false;
 
   /// Текущий поисковый запрос (сырой, как в поле).
   String _query = '';
@@ -42,12 +48,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     await _storage.seedIfFirstRun();
     final songs = await _storage.listSongs();
+    final ds = await DeepSeekCredentials.isConfigured();
     if (!mounted) return;
     setState(() {
       _songs = songs
           .map((x) => SongWithPreview(preview: x.preview, song: x))
           .toList();
       _loading = false;
+      _deepseekConfigured = ds;
     });
   }
 
@@ -113,9 +121,44 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _query = '');
   }
 
+  /// Локально ничего не нашлось.
+  /// На нативе — генерируем текст через DeepSeek, на вебе — открываем Google.
+  Future<void> _openSearch() async {
+    final q = _query.trim();
+    if (q.isEmpty) return;
+    if (kIsWeb) {
+      // Веб: к API DeepSeek из браузера не достучаться (CORS) — открываем чат.
+      openDeepSeekInTab(q);
+      return;
+    }
+    final draft = await Navigator.of(context).push<SongDraft>(
+      MaterialPageRoute(builder: (_) => DeepSeekSongScreen(query: q)),
+    );
+    if (!mounted || draft == null) return;
+    await Navigator.of(context).push<Song?>(
+      MaterialPageRoute(
+        builder: (_) => SongEditorScreen(
+          prefillTitle: draft.title,
+          prefillContent: draft.content,
+        ),
+      ),
+    );
+    _load();
+  }
+
+  /// Экран настройки API-ключа DeepSeek.
+  Future<void> _openDeepSeekSetup() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const DeepSeekSettingsScreen()),
+    );
+    if (!mounted) return;
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
+
     return Scaffold(
       body: SafeArea(
         child: _loading
@@ -128,7 +171,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Divider(height: 1),
                   Expanded(
                     child: filtered.isEmpty
-                        ? _NoResultsView(query: _query, onClear: _clearSearch)
+                        ? _NoResultsView(
+                            query: _query,
+                            onClear: _clearSearch,
+                            configured: _deepseekConfigured,
+                            onSearch: _openSearch,
+                            onEditKey: _openDeepSeekSetup,
+                          )
                         : _buildSongsList(filtered),
                   ),
                 ],
@@ -270,8 +319,17 @@ class _EmptyView extends StatelessWidget {
 class _NoResultsView extends StatelessWidget {
   final String query;
   final VoidCallback onClear;
+  final bool configured;
+  final VoidCallback onSearch;
+  final VoidCallback onEditKey;
 
-  const _NoResultsView({required this.query, required this.onClear});
+  const _NoResultsView({
+    required this.query,
+    required this.onClear,
+    required this.configured,
+    required this.onSearch,
+    required this.onEditKey,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -289,11 +347,31 @@ class _NoResultsView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'По запросу «$query»\nнет совпадений в названиях и текстах.',
+              'По запросу «$query»\nнет совпадений в ваших песнях.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 20),
+            if (configured) ...[
+              FilledButton.tonalIcon(
+                onPressed: onSearch,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Спросить ИИ'),
+              ),
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: onEditKey,
+                icon: const Icon(Icons.key_outlined, size: 18),
+                label: const Text('Редактировать ключ'),
+              ),
+            ] else ...[
+              FilledButton.tonalIcon(
+                onPressed: onEditKey,
+                icon: const Icon(Icons.key_outlined),
+                label: const Text('Настроить ключ DeepSeek'),
+              ),
+            ],
+            const SizedBox(height: 8),
             TextButton.icon(
               onPressed: onClear,
               icon: const Icon(Icons.clear),

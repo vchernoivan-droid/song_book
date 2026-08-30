@@ -59,10 +59,10 @@ class PrefsSongStorage implements SongStorage {
     final names = data.keys.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return names
-        .map((n) => Song(
+        .map((n) => Song.fromRaw(
               fileName: n,
               title: _titleFromName(n),
-              content: data[n]!,
+              rawContent: data[n]!,
             ))
         .toList();
   }

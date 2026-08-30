@@ -8,7 +8,18 @@ import '../services/song_storage.dart';
 /// Если [song] == null — создаём новую, иначе редактируем существующую.
 class SongEditorScreen extends StatefulWidget {
   final Song? song;
-  const SongEditorScreen({super.key, this.song});
+
+  /// Предзаполнение для новой песни (например, текст из интернета).
+  /// Применяется только если [song] == null.
+  final String? prefillTitle;
+  final String? prefillContent;
+
+  const SongEditorScreen({
+    super.key,
+    this.song,
+    this.prefillTitle,
+    this.prefillContent,
+  });
 
   @override
   State<SongEditorScreen> createState() => _SongEditorScreenState();
@@ -18,13 +29,20 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   final _storage = SongStorage();
   late final TextEditingController _titleCtrl;
   late final TextEditingController _contentCtrl;
+  late final String _origTitle;
+  late final String _origContent;
+  late final int _transpose = widget.song?.transpose ?? 0;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _titleCtrl = TextEditingController(text: widget.song?.title ?? '');
-    _contentCtrl = TextEditingController(text: widget.song?.content ?? '');
+    final initialTitle = widget.song?.title ?? widget.prefillTitle ?? '';
+    final initialContent = widget.song?.content ?? widget.prefillContent ?? '';
+    _origTitle = initialTitle;
+    _origContent = initialContent;
+    _titleCtrl = TextEditingController(text: initialTitle);
+    _contentCtrl = TextEditingController(text: initialContent);
   }
 
   @override
@@ -35,8 +53,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   }
 
   bool get _hasChanges =>
-      _titleCtrl.text != (widget.song?.title ?? '') ||
-      _contentCtrl.text != (widget.song?.content ?? '');
+      _titleCtrl.text != _origTitle || _contentCtrl.text != _origContent;
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
@@ -51,13 +68,18 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
     try {
       final fileName = await _storage.writeSong(
         desiredTitle: title,
-        content: _contentCtrl.text,
+        content: Song.withTransposeHeader(_transpose, _contentCtrl.text),
         oldFileName: widget.song?.fileName,
       );
 
       if (!mounted) return;
       Navigator.of(context).pop(
-        Song(fileName: fileName, title: title, content: _contentCtrl.text),
+        Song(
+          fileName: fileName,
+          title: title,
+          content: _contentCtrl.text,
+          transpose: _transpose,
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
