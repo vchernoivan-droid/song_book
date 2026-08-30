@@ -88,5 +88,10 @@ e|-------0---------------|
       expect(result, contains('On a dark desert highway'));
       expect(result, contains('e|-------0---------------|'));
     });
+
+    test('переходы через ~ транспонируют оба аккорда', () {
+      expect(transposeSongContent('G#7~A7', 1), 'A7~Bb7');
+      expect(transposeSongContent('Em75-   G#7~A7 Dm', 1), 'Fm75-   A7~Bb7 Ebm');
+    });
   });
 }

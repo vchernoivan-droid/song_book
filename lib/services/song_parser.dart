@@ -109,6 +109,20 @@ class AnnotationToken extends Token {
   int get hashCode => Object.hash(text, chordLine);
 }
 
+class InlineToken extends Token {
+  /// Не-аккордный кусок между двумя аккордами (например, «~» в «G#7~A7») —
+  /// рендерится вплотную к соседям на аккордной строке.
+  final String text;
+
+  const InlineToken(this.text);
+
+  @override
+  bool operator ==(Object other) => other is InlineToken && other.text == text;
+
+  @override
+  int get hashCode => text.hashCode;
+}
+
 /// Строка песни. Слитная пара «аккорды + текст» — одна [Line]: первый
 /// аккорд слова — в поле [WordToken.chord], дополнительные смены на слове —
 /// [ChordToken] сразу после него, аккорды за концом слов — в конце списка
@@ -119,9 +133,10 @@ class Line {
 
   const Line(this.tokens, {this.source});
 
-  /// Строка только из аккордов (интро, проигрыш без текста).
+  /// Строка без слов (интро, проигрыш без текста): аккорды, inline-куски
+  /// и хвостовые аннотации.
   bool get isProgression =>
-      tokens.isNotEmpty && tokens.every((t) => t is ChordToken);
+      tokens.isNotEmpty && tokens.every((t) => t is! WordToken);
 }
 
 class Section {
@@ -255,7 +270,21 @@ Line _lyricLine(String line) {
 Line _progressionLine(String line) {
   final split = _splitAnnotation(line, _isChordTokenText);
   final head = split?.head ?? line;
-  final tokens = RegExp(r'\S+').allMatches(head).map(_overToken).toList();
+  final tokens = <Token>[];
+  final pieces = scanChordLine(head);
+  for (var i = 0; i < pieces.length; i++) {
+    final p = pieces[i];
+    if (p is ChordPiece) {
+      tokens.add(ChordToken(p.chord));
+      continue;
+    }
+    final text = (p as GapPiece).text.trim();
+    if (text.isEmpty) continue;
+    final hasChordAfter = pieces.skip(i + 1).any((x) => x is ChordPiece);
+    tokens.add(hasChordAfter
+        ? InlineToken(text)
+        : AnnotationToken(text, chordLine: true));
+  }
   if (split != null) {
     tokens.add(AnnotationToken(split.annotation, chordLine: true));
   }
@@ -326,6 +355,46 @@ Token _overToken(RegExpMatch m) {
   return chord == null ? RawToken(m[0]!) : ChordToken(chord);
 }
 
+/// Кусок аккордной строки: аккорд или не-аккордный текст между ними.
+sealed class ChordLinePiece {
+  const ChordLinePiece(this.start, this.end);
+
+  final int start;
+  final int end;
+}
+
+class ChordPiece extends ChordLinePiece {
+  const ChordPiece(this.chord, super.start, super.end);
+
+  final Chord chord;
+}
+
+class GapPiece extends ChordLinePiece {
+  const GapPiece(this.text, super.start, super.end);
+
+  final String text;
+}
+
+/// Сканирует строку аккордов без анкоров: каждый аккорд — [ChordPiece],
+/// текст между ними (включая пробелы) — [GapPiece]. Куски покрывают строку
+/// целиком, позиции считаются по нормализованной (латиница) строке.
+List<ChordLinePiece> scanChordLine(String line) {
+  final normalized = _normalizeLookalikes(line);
+  final pieces = <ChordLinePiece>[];
+  var cursor = 0;
+  for (final m in _chordRe.allMatches(normalized)) {
+    if (m.start > cursor) {
+      pieces.add(GapPiece(line.substring(cursor, m.start), cursor, m.start));
+    }
+    pieces.add(ChordPiece(_chordFromMatch(m), m.start, m.end));
+    cursor = m.end;
+  }
+  if (cursor < line.length) {
+    pieces.add(GapPiece(line.substring(cursor), cursor, line.length));
+  }
+  return pieces;
+}
+
 // ---------------------------------------------------------------------------
 // Рендеринг
 // ---------------------------------------------------------------------------
@@ -360,11 +429,37 @@ String _renderLine(Line line, bool fromSource) {
     return (line.tokens.single as RawToken).text;
   }
   if (line.isProgression) {
-    return line.tokens
-        .map((t) => (t as ChordToken).chord.display)
-        .join('   ');
+    return _renderProgression(line.tokens);
   }
   return _renderMerged(line.tokens);
+}
+
+/// Прогрессия: аккорды через три пробела, inline-куски («~») — вплотную,
+/// хвостовая аннотация — через один пробел в конце.
+String _renderProgression(List<Token> tokens) {
+  final out = StringBuffer();
+  var prevInline = false;
+  for (final t in tokens) {
+    switch (t) {
+      case ChordToken(:final chord):
+        if (out.isNotEmpty && !prevInline) out.write('   ');
+        out.write(chord.display);
+        prevInline = false;
+      case InlineToken(:final text):
+        out.write(text);
+        prevInline = true;
+      case RawToken(:final text):
+        if (out.isNotEmpty && !prevInline) out.write('   ');
+        out.write(text);
+        prevInline = false;
+      case AnnotationToken(:final text):
+        out.write(' $text');
+        prevInline = false;
+      case WordToken():
+        break;
+    }
+  }
+  return out.toString();
 }
 
 /// Пересборка слитной строки: аккорд слова — над его началом, доп. смены —
@@ -390,6 +485,12 @@ String _renderMerged(List<Token> tokens) {
           endOfLine: endOfLine,
         ));
       case RawToken(:final text):
+        blocks.add((
+          word: words.isEmpty ? 0 : words.length - 1,
+          text: text,
+          endOfLine: false,
+        ));
+      case InlineToken(:final text):
         blocks.add((
           word: words.isEmpty ? 0 : words.length - 1,
           text: text,
@@ -440,11 +541,13 @@ String _renderMerged(List<Token> tokens) {
 // Общие распознаватели (используются и транспозером)
 // ---------------------------------------------------------------------------
 
-/// Полный аккорд: тоника + качество (+ слэш-бас).
+/// Полный аккорд: тоника + качество (+ слэш-бас). Без анкоров — чтобы
+/// [scanChordLine] находил аккорды и внутри слипшихся кусков («G#7~A7»);
+/// [parseChord] сам проверяет совпадение по всей длине токена.
 final RegExp _chordRe = RegExp(
-  r'^([A-G])([#b♯♭]?)'
+  r'([A-G])([#b♯♭]?)'
   r'((?:maj|min|sus|dim|aug|add|alt|mM|m|M|°|º|ø|Δ|\+|-|#|b|\d|\(|\))*)'
-  r'(?:/([A-G])([#b♯♭]?))?$',
+  r'(?:/([A-G])([#b♯♭]?))?',
 );
 
 /// Кириллические буквы-двойники латинских — в аккордах из-за не
@@ -463,16 +566,19 @@ String _normalizeLookalikes(String token) {
 }
 
 /// Разбирает токен как аккорд; null — если это не аккорд. Кириллические
-/// двойники нормализуются в латиницу.
+/// двойники нормализуются в латиницу. Токен должен совпасть целиком.
 Chord? parseChord(String token) {
-  final m = _chordRe.firstMatch(_normalizeLookalikes(token));
-  if (m == null) return null;
-  return Chord(
-    root: m[1]! + (m[2] ?? ''),
-    quality: m[3] ?? '',
-    bass: m[4] == null ? null : m[4]! + (m[5] ?? ''),
-  );
+  final normalized = _normalizeLookalikes(token);
+  final m = _chordRe.firstMatch(normalized);
+  if (m == null || m.start != 0 || m.end != normalized.length) return null;
+  return _chordFromMatch(m);
 }
+
+Chord _chordFromMatch(Match m) => Chord(
+      root: m[1]! + (m[2] ?? ''),
+      quality: m[3] ?? '',
+      bass: m[4] == null ? null : m[4]! + (m[5] ?? ''),
+    );
 
 final RegExp _tabLineStart = RegExp(r'^(e|B|G|D|A|E)\s*\|');
 
@@ -507,20 +613,18 @@ bool _isChordTokenText(String token) => parseChord(token) != null;
   );
 }
 
-/// Строка считается строкой аккордов, когда аккордов строго больше половины
-/// «слов» (служебные заголовки вида «[Куплет 1]» не считаются словами) —
-/// иначе текст песни с редкими «Am»/«A» не отличить. Строка с аккордами и
+/// Строка считается строкой аккордов, когда аккорды покрывают больше половины
+/// не-пробельных символов (заголовки вида «[Куплет 1]» не считаются) — иначе
+/// текст песни с редкими «Am»/«A» не отличить. Строка с аккордами и
 /// хвостом-аннотацией («G C // комментарий») аккордная без всякого
 /// большинства.
 bool isChordLineText(String line) {
   if (_splitAnnotation(line, _isChordTokenText) != null) return true;
-  final withoutHeaders = line.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
-  var chords = 0;
-  var total = 0;
-  for (final token in withoutHeaders.split(RegExp(r'\s+'))) {
-    if (token.isEmpty) continue;
-    total++;
-    if (parseChord(token) != null) chords++;
+  final body = line.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
+  var chordChars = 0;
+  for (final p in scanChordLine(body)) {
+    if (p is ChordPiece) chordChars += p.end - p.start;
   }
-  return total > 0 && chords * 2 > total;
+  final nonWs = body.replaceAll(RegExp(r'\s'), '').length;
+  return nonWs > 0 && chordChars * 2 > nonWs;
 }

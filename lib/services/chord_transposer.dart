@@ -30,27 +30,25 @@ String _transposeLine(String line, int semitones) {
 }
 
 String _transposeChordLine(String line, int semitones) {
-  final tokens = RegExp(r'\S+').allMatches(line).toList();
+  final pieces = scanChordLine(line);
   final out = StringBuffer();
-  var cursor = 0;
-  for (var i = 0; i < tokens.length; i++) {
-    final m = tokens[i];
-    final token = m[0]!;
-    out.write(line.substring(cursor, m.start));
-
-    final chord = parseChord(token);
-    final shifted =
-        chord == null ? token : _transposeChord(chord, semitones).display;
+  for (var i = 0; i < pieces.length; i++) {
+    final p = pieces[i];
+    if (p is GapPiece) {
+      out.write(p.text);
+      continue;
+    }
+    final chord = p as ChordPiece;
+    final shifted = _transposeChord(chord.chord, semitones).display;
     out.write(shifted);
-
-    final hasNext = i + 1 < tokens.length;
-    final gapEnd = hasNext ? tokens[i + 1].start : line.length;
-    var gap = line.substring(m.end, gapEnd);
-    gap = _absorbDelta(gap, shifted.length - token.length, hasNext);
-    out.write(gap);
-    cursor = gapEnd;
+    final next = i + 1 < pieces.length ? pieces[i + 1] : null;
+    if (next is GapPiece && next.text.trim().isEmpty) {
+      final hasNextAfterGap = i + 2 < pieces.length;
+      final delta = shifted.length - (chord.end - chord.start);
+      out.write(_absorbDelta(next.text, delta, hasNextAfterGap));
+      i++;
+    }
   }
-  out.write(line.substring(cursor));
   return out.toString();
 }
 

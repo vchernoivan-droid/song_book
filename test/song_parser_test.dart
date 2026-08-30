@@ -312,4 +312,43 @@ void main() {
           'текст с двойными пробелами\n');
     });
   });
+
+  group('inline-переходы (~)', () {
+    test('G#7~A7 разбивается на два аккорда и ~', () {
+      final s = parseSong('G#7~A7\n').sections.single;
+      expect(s.lines.single.tokens, [
+        chord('G#7'),
+        const InlineToken('~'),
+        chord('A7'),
+      ]);
+    });
+
+    test('слипшиеся переходы в прогрессии', () {
+      final s = parseSong('Em75-   G#7~A7 G#7~A7 Dm\n').sections.single;
+      expect(s.lines.single.tokens, [
+        chord('Em75-'),
+        chord('G#7'),
+        const InlineToken('~'),
+        chord('A7'),
+        chord('G#7'),
+        const InlineToken('~'),
+        chord('A7'),
+        chord('Dm'),
+      ]);
+    });
+
+    test('Em75- парсится как аккорд с сырым качеством', () {
+      final c = parseChord('Em75-');
+      expect(c, isNotNull);
+      expect(c!.root, 'E');
+      expect(c.quality, 'm75-');
+    });
+
+    test('канонический рендер сохраняет ~ между аккордами', () {
+      expect(renderSong(parseSong('G#7~A7\n'), fromSource: false), 'G#7~A7\n');
+      expect(renderSong(parseSong('Em75-   G#7~A7 G#7~A7 Dm\n'),
+          fromSource: false),
+          'Em75-   G#7~A7   G#7~A7   Dm\n');
+    });
+  });
 }
