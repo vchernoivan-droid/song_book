@@ -82,8 +82,59 @@ void main() {
       expect(song.rawContent, 'Am F');
     });
 
-    test('withTransposeHeader для отрицательного значения', () {
-      expect(Song.withTransposeHeader(-3, 'Am'), '# transpose: -3\nAm');
+    test('fromRaw читает шапку шрифта', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: '# font: 18\nAm F',
+      );
+      expect(song.fontSize, 18);
+      expect(song.content, 'Am F');
+    });
+
+    test('fromRaw читает обе шапки в любом порядке', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: '# font: 18\n# transpose: +2\nAm F',
+      );
+      expect(song.transpose, 2);
+      expect(song.fontSize, 18);
+      expect(song.content, 'Am F');
+    });
+
+    test('fontSize по умолчанию 15', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: 'Am F',
+      );
+      expect(song.fontSize, 15);
+    });
+
+    test('fontSize за пределами 10..28 обрезается', () {
+      final song = Song.fromRaw(
+        fileName: 'A.txt',
+        title: 'A',
+        rawContent: '# font: 99\nAm F',
+      );
+      expect(song.fontSize, 28);
+    });
+
+    test('rawContent пишет шапку шрифта при отличии от 15', () {
+      const song = Song(
+        fileName: 'A.txt',
+        title: 'A',
+        content: 'Am F',
+        fontSize: 20,
+      );
+      expect(song.rawContent, '# font: 20\nAm F');
+    });
+
+    test('withHeaders склеивает обе шапки', () {
+      expect(Song.withHeaders(transpose: -3, fontSize: 18, body: 'Am'),
+          '# transpose: -3\n# font: 18\nAm');
+      expect(Song.withHeaders(transpose: 0, fontSize: 15, body: 'Am'), 'Am');
     });
   });
 }

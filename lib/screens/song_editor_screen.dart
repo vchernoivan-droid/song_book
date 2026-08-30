@@ -32,6 +32,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   late final String _origTitle;
   late final String _origContent;
   late final int _transpose = widget.song?.transpose ?? 0;
+  late final int _fontSize = widget.song?.fontSize ?? 15;
   bool _saving = false;
 
   @override
@@ -68,7 +69,11 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
     try {
       final fileName = await _storage.writeSong(
         desiredTitle: title,
-        content: Song.withTransposeHeader(_transpose, _contentCtrl.text),
+        content: Song.withHeaders(
+          transpose: _transpose,
+          fontSize: _fontSize,
+          body: _contentCtrl.text,
+        ),
         oldFileName: widget.song?.fileName,
       );
 
@@ -79,6 +84,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
           title: title,
           content: _contentCtrl.text,
           transpose: _transpose,
+          fontSize: _fontSize,
         ),
       );
     } finally {

@@ -22,6 +22,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
   final _storage = SongStorage();
   late Song _song = widget.song;
   late int _semitones = _song.transpose;
+  late int _fontSize = _song.fontSize;
   bool _pretty = true;
   Future<void> _persistChain = Future.value();
 
@@ -43,6 +44,7 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
       setState(() {
         _song = updated;
         _semitones = updated.transpose;
+        _fontSize = updated.fontSize;
       });
     }
   }
@@ -51,21 +53,38 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
     final v = value.clamp(-11, 11);
     if (v == _semitones) return;
     setState(() => _semitones = v);
+    _persist(v, _fontSize);
+  }
 
+  void _setFontSize(int value) {
+    final v = value.clamp(10, 28);
+    if (v == _fontSize) return;
+    setState(() => _fontSize = v);
+    _persist(_semitones, v);
+  }
+
+  void _persist(int semitones, int fontSize) {
     // Быстрые нажатия не должны гоняться за файловой записью.
     _persistChain = _persistChain.then((_) async {
-      final body = _song.content;
       try {
         final name = await _storage.writeSong(
           desiredTitle: _song.title,
-          content: Song.withTransposeHeader(v, body),
+          content: Song.withHeaders(
+            transpose: semitones,
+            fontSize: fontSize,
+            body: _song.content,
+          ),
           oldFileName: _song.fileName,
         );
-        _song = _song.copyWith(fileName: name, transpose: v);
+        _song = _song.copyWith(
+          fileName: name,
+          transpose: semitones,
+          fontSize: fontSize,
+        );
       } catch (_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Не удалось сохранить транспонирование')),
+            const SnackBar(content: Text('Не удалось сохранить настройки')),
           );
         }
       }
@@ -103,7 +122,8 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const mono = TextStyle(fontFamily: 'Roboto Mono', fontSize: 15, height: 1.35);
+    final mono = TextStyle(
+        fontFamily: 'Roboto Mono', fontSize: _fontSize.toDouble(), height: 1.35);
     final displayed = _song.content.isEmpty ? '(пусто)' : _displayedBody;
     return Scaffold(
       appBar: AppBar(
@@ -127,35 +147,59 @@ class _SongDetailScreenState extends State<SongDetailScreen> {
                 setState(() => _pretty = selection.first),
           ),
           IconButton(
-            tooltip: 'На полтона ниже',
+            tooltip: 'Уменьшить шрифт',
+            visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.remove),
+            onPressed: () => _setFontSize(_fontSize - 1),
+          ),
+          Container(
+            width: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _fontSize == 15
+                    ? Theme.of(context).dividerColor
+                    : Theme.of(context).colorScheme.primary,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              '$_fontSize',
+              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Увеличить шрифт',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.add),
+            onPressed: () => _setFontSize(_fontSize + 1),
+          ),
+          IconButton(
+            tooltip: 'На полтона ниже',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.keyboard_arrow_down),
             onPressed: () => _shiftTo(_semitones - 1),
           ),
-          Tooltip(
-            message: 'Сбросить транспонирование',
-            child: GestureDetector(
-              onTap: () => _shiftTo(0),
-              child: Container(
-                width: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: _semitones == 0
-                        ? Theme.of(context).dividerColor
-                        : Theme.of(context).colorScheme.primary,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  _semitonesLabel,
-                  style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-                ),
+          Container(
+            width: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _semitones == 0
+                    ? Theme.of(context).dividerColor
+                    : Theme.of(context).colorScheme.primary,
               ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              _semitonesLabel,
+              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
             ),
           ),
           IconButton(
             tooltip: 'На полтона выше',
-            icon: const Icon(Icons.add),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.keyboard_arrow_up),
             onPressed: () => _shiftTo(_semitones + 1),
           ),
           IconButton(
