@@ -1,17 +1,24 @@
 /// Парсер песни из «надстрочного» формата (аккорды строкой над текстом)
 /// в структурную модель и рендер обратно.
 ///
-/// Модель: ParsedSong → Section[] → Line[] → Token[] (Word | Chord | Raw |
-/// Annotation). Пара физических строк «аккорды над текстом» склеивается в
-/// одну [Line]: первый аккорд слова — поле WordToken.chord (округление к
-/// началу слова), дополнительные смены на слове — ChordToken сразу после
-/// него, аккорды за концом слов — ChordToken(endOfLine) в конце списка.
-/// Хвосты-аннотации («// можно C7», «(2 раза)») — AnnotationToken с флагом
-/// строки-хозяина. Колонки и пробелы не
-/// хранятся: нетронутая строка помнит исходный текст ([Line.source]) и
-/// рендерится байт-в-байт; изменённая собирается заново — аккорды над
-/// началами слов.
+/// Модель: ParsedSong → Section[] → Line[] → Token[] (Syllable | Chord |
+/// Raw | Annotation | Inline). Атом текста — слог ([SyllableToken]):
+/// дефисные части исходника и слова без дефисов режутся на слоги
+/// переносом (syllable_split); сами дефисы исходника модель не хранит —
+/// при пересборке слово дефисируется, только когда аккорду нужен
+/// конкретный слог. Пара физических строк «аккорды над текстом»
+/// склеивается в одну [Line]: первый аккорд слога — поле
+/// SyllableToken.chord (пересечение колонок), дополнительные смены на
+/// слоге — ChordToken сразу после него, аккорды за концом слов —
+/// ChordToken(endOfLine) в конце списка. Хвосты-аннотации («// можно C7»,
+/// «(2 раза)») — AnnotationToken с флагом строки-хозяина. Колонки и
+/// пробелы не хранятся: нетронутая строка помнит исходный текст
+/// ([Line.source]) и рендерится байт-в-байт; изменённая собирается заново —
+/// аккорды над началами слогов, за аккордами без #/b резервируется
+/// колонка под знак, чтобы вёрстка не переезжала при транспонировании.
 library;
+
+import 'syllable_split.dart';
 
 /// Разновидность секции — по ключевым словам заголовка.
 enum SectionKind { verse, chorus, bridge, intro, outro, solo, unknown }
@@ -44,20 +51,29 @@ sealed class Token {
   const Token();
 }
 
-class WordToken extends Token {
+/// Позиция слога в слове: none — слово из одного слога, right — первый
+/// слог, left — последний, both — середина. Начало слова — none|right.
+enum SyllableDash { none, right, both, left }
+
+class SyllableToken extends Token {
   final String text;
 
-  /// Первый аккорд слова (смена на его начале).
+  final SyllableDash dash;
+
+  /// Первый аккорд слога (смена на его начале).
   final Chord? chord;
 
-  const WordToken(this.text, {this.chord});
+  const SyllableToken(this.text, {this.dash = SyllableDash.none, this.chord});
 
   @override
   bool operator ==(Object other) =>
-      other is WordToken && other.text == text && other.chord == chord;
+      other is SyllableToken &&
+      other.text == text &&
+      other.dash == dash &&
+      other.chord == chord;
 
   @override
-  int get hashCode => Object.hash(text, chord);
+  int get hashCode => Object.hash(text, dash, chord);
 }
 
 class ChordToken extends Token {
@@ -97,7 +113,8 @@ class AnnotationToken extends Token {
   const AnnotationToken(this.text);
 
   @override
-  bool operator ==(Object other) => other is AnnotationToken && other.text == text;
+  bool operator ==(Object other) =>
+      other is AnnotationToken && other.text == text;
 
   @override
   int get hashCode => text.hashCode;
@@ -124,9 +141,9 @@ class InlineToken extends Token {
 }
 
 /// Строка песни. Слитная пара «аккорды + текст» — одна [Line]: первый
-/// аккорд слова — в поле [WordToken.chord], дополнительные смены на слове —
-/// [ChordToken] сразу после него, аккорды за концом слов — в конце списка
-/// с [ChordToken.endOfLine].
+/// аккорд слога — в поле [SyllableToken.chord], дополнительные смены на
+/// слоге — [ChordToken] сразу после него, аккорды за концом слов — в
+/// конце списка с [ChordToken.endOfLine].
 class Line {
   final List<Token> tokens;
   final String? source;
@@ -136,7 +153,7 @@ class Line {
   /// Строка без слов (интро, проигрыш без текста): аккорды, inline-куски
   /// и хвостовые аннотации.
   bool get isProgression =>
-      tokens.isNotEmpty && tokens.every((t) => t is! WordToken);
+      tokens.isNotEmpty && tokens.every((t) => t is! SyllableToken);
 }
 
 class Section {
@@ -259,7 +276,7 @@ Line _lyricLine(String line) {
   final split = _splitAnnotation(line, _isWordTokenText);
   final head = split?.head ?? line;
   final tokens = <Token>[
-    for (final m in RegExp(r'\S+').allMatches(head)) WordToken(m[0]!),
+    for (final m in RegExp(r'\S+').allMatches(head)) ...wordSyllables(m[0]!),
   ];
   if (split != null) {
     tokens.add(AnnotationToken(split.annotation));
@@ -291,11 +308,12 @@ Line _progressionLine(String line) {
 
 /// Склеивает пару физических строк в одну [Line].
 ///
-/// Аккорд привязывается к слову, только если их колонки пересекаются;
-/// аккорд над пробелом между словами становится отдельным пустым словом
-/// [WordToken] с этим аккордом. Первый аккорд слова — поле [WordToken.chord],
-/// следующие — токенами сразу после слова; аккорд правее конца последнего
-/// слова — токеном конца строки. Хвосты-аннотации — [InlineToken]/[AnnotationToken].
+/// Аккорд привязывается к слогу, только если их колонки пересекаются
+/// (слог владеет хвостовым дефисом исходника); аккорд над пробелом между
+/// словами становится отдельным пустым слогом. Первый аккорд слога —
+/// поле [SyllableToken.chord], следующие — токенами сразу после слога;
+/// аккорд правее конца последнего слова — токеном конца строки.
+/// Хвосты-аннотации — [InlineToken]/[AnnotationToken].
 Line _mergePair(String over, String under) {
   final overSplit = _splitAnnotation(over, _isChordTokenText);
   final underSplit = _splitAnnotation(under, _isWordTokenText);
@@ -307,13 +325,19 @@ Line _mergePair(String over, String under) {
 
   final slotText = <String>[];
   final slotStart = <int>[];
+  final slotEnd = <int>[];
+  final slotDash = <SyllableDash>[];
   final slotChord = <Chord?>[];
   final slotExtras = <List<Token>>[];
   for (final m in wordMatches) {
-    slotText.add(m[0]!);
-    slotStart.add(m.start);
-    slotChord.add(null);
-    slotExtras.add(<Token>[]);
+    for (final s in _wordSyllables(m[0]!, m.start)) {
+      slotText.add(s.text);
+      slotStart.add(s.start);
+      slotEnd.add(s.end);
+      slotDash.add(s.dash);
+      slotChord.add(null);
+      slotExtras.add(<Token>[]);
+    }
   }
 
   final lastWordEnd = wordMatches.last.start + wordMatches.last[0]!.length;
@@ -323,8 +347,7 @@ Line _mergePair(String over, String under) {
   int chordSlot(ChordPiece p) {
     for (var i = 0; i < slotText.length; i++) {
       if (slotText[i].isEmpty) continue;
-      final wordEnd = slotStart[i] + slotText[i].length;
-      if (p.start < wordEnd && p.end > slotStart[i]) return i;
+      if (p.start < slotEnd[i] && p.end > slotStart[i]) return i;
     }
     return -1;
   }
@@ -335,7 +358,9 @@ Line _mergePair(String over, String under) {
       i++;
     }
     slotStart.insert(i, column);
+    slotEnd.insert(i, column);
     slotText.insert(i, '');
+    slotDash.insert(i, SyllableDash.none);
     slotChord.insert(i, null);
     slotExtras.insert(i, <Token>[]);
     return i;
@@ -379,7 +404,7 @@ Line _mergePair(String over, String under) {
 
   final tokens = <Token>[];
   for (var i = 0; i < slotText.length; i++) {
-    tokens.add(WordToken(slotText[i], chord: slotChord[i]));
+    tokens.add(SyllableToken(slotText[i], dash: slotDash[i], chord: slotChord[i]));
     tokens.addAll(slotExtras[i]);
   }
   tokens.addAll(lineEnd);
@@ -391,6 +416,58 @@ Line _mergePair(String over, String under) {
   }
   return Line(tokens, source: '$over\n$under');
 }
+
+/// Слоги слова, начинающегося в колонке [base]: части, разделённые
+/// дефисами исходника, дополнительно режутся переносом. Слог владеет
+/// своим хвостовым дефисом исходника — колонки привязки совпадают с
+/// исходником. [SyllableToken.dash] — позиция в слове, дефисы исходника
+/// не хранятся.
+List<({String text, SyllableDash dash, int start, int end})>
+    _wordSyllables(String word, int base) {
+  final spans = <({String text, int start, int end})>[];
+
+  final hyphenParts = word.contains('-') ? word.split('-') : null;
+  if (hyphenParts != null && hyphenParts.every((p) => p.isEmpty)) {
+    spans.add((text: word, start: 0, end: word.length));
+  } else {
+    final parts = hyphenParts ?? [word];
+    var cursor = 0;
+    for (var i = 0; i < parts.length; i++) {
+      final lastPart = i == parts.length - 1;
+      final syllables = splitWordToSyllables(parts[i]);
+      for (var j = 0; j < syllables.length; j++) {
+        final s = syllables[j];
+        final trailing = j == syllables.length - 1 && !lastPart ? 1 : 0;
+        spans.add((text: s, start: cursor, end: cursor + s.length + trailing));
+        cursor += s.length;
+      }
+      if (!lastPart) cursor++;
+    }
+  }
+
+  return [
+    for (var i = 0; i < spans.length; i++)
+      (
+        text: spans[i].text,
+        dash: spans.length == 1
+            ? SyllableDash.none
+            : i == 0
+                ? SyllableDash.right
+                : i == spans.length - 1
+                    ? SyllableDash.left
+                    : SyllableDash.both,
+        start: base + spans[i].start,
+        end: base + spans[i].end,
+      ),
+  ];
+}
+
+/// Слоги слова без привязки к колонкам и аккордам — для тестов и
+/// последующего анализа структуры.
+List<SyllableToken> wordSyllables(String text) => [
+      for (final s in _wordSyllables(text, 0))
+        SyllableToken(s.text, dash: s.dash),
+    ];
 
 /// Кусок аккордной строки: аккорд или не-аккордный текст между ними.
 sealed class ChordLinePiece {
@@ -493,61 +570,127 @@ String _renderProgression(List<Token> tokens) {
       case AnnotationToken(:final text):
         out.write(' $text');
         prevInline = false;
-      case WordToken():
+      case SyllableToken():
         break;
     }
   }
   return out.toString();
 }
 
-/// Пересборка слитной строки единым проходом слева направо: слово и его
-/// первый аккорд встают в одну колонку, доп. аккорды и висячие аккорды
-/// расталкивают зазор, аккорды конца строки — за последним словом.
+/// Эффективная ширина аккорда в колонках: имя плюс зарезервированное
+/// место под случайный знак — у аккордов без #/b транспонирование может
+/// его добавить. Одинакова для всех написаний одного аккорда, поэтому
+/// вёрстка не переезжает при смене тональности.
+int chordWidth(Chord chord) =>
+    chord.display.length + (chord.root.length == 1 ? 1 : 0);
+
+/// Номера слов, которые при пересборке дефисируются: аккорд на не-первом
+/// слоге не влезает в слог (по эффективной ширине) или слог несёт
+/// доп-аккорды — без дефисов непонятно, к какому слогу относится смена.
+Set<int> _hyphenatedWords(List<Token> tokens) {
+  final hyphenated = <int>{};
+  var wordIndex = -1;
+  var syllableIndex = 0;
+  var lastSyllableIndex = -1;
+  var lastSyllableWord = -1;
+  for (final t in tokens) {
+    switch (t) {
+      case SyllableToken(:final text, :final dash, :final chord):
+        if (dash == SyllableDash.none || dash == SyllableDash.right) {
+          wordIndex++;
+          syllableIndex = 0;
+        } else {
+          syllableIndex++;
+        }
+        lastSyllableIndex = syllableIndex;
+        lastSyllableWord = wordIndex;
+        if (chord != null &&
+            syllableIndex > 0 &&
+            chordWidth(chord) > text.length) {
+          hyphenated.add(wordIndex);
+        }
+      case ChordToken(endOfLine: false):
+        if (lastSyllableIndex > 0) hyphenated.add(lastSyllableWord);
+      case ChordToken(endOfLine: true):
+      case InlineToken():
+      case RawToken():
+      case AnnotationToken():
+        break;
+    }
+  }
+  return hyphenated;
+}
+
+/// Пересборка слитной строки единым проходом слева направо: слог и его
+/// первый аккорд встают в одну колонку (слоги одного слова — вплотную,
+/// дефисы — только по [_hyphenatedWords]), следующее содержимое очищает
+/// эффективный конец предыдущего аккорда [chordWidth], аккорды конца
+/// строки — за последним словом.
 String _renderMerged(List<Token> tokens) {
+  final hyphenated = _hyphenatedWords(tokens);
   final chords = StringBuffer();
   final words = StringBuffer();
   final wordAnnots = <String>[];
   var prevInline = false;
+  var wordIndex = -1;
+  var syllableIndex = 0;
+  var effEnd = -1;
 
   int mx(int a, int b) => a > b ? a : b;
 
+  void writeChord(Chord chord, int col) {
+    chords.write(' ' * (col - chords.length) + chord.display);
+    effEnd = col + chordWidth(chord);
+  }
+
   for (final t in tokens) {
     switch (t) {
-      case WordToken(:final text, :final chord):
-        final s = (words.isEmpty && chords.isEmpty)
-            ? 0
-            : mx(words.length + 1, chords.length + 1);
-        words.write(' ' * (s - words.length) + text);
+      case SyllableToken(:final text, :final dash, :final chord):
+        final startsWord =
+            dash == SyllableDash.none || dash == SyllableDash.right;
+        if (startsWord) {
+          wordIndex++;
+          syllableIndex = 0;
+        } else {
+          syllableIndex++;
+        }
+        final hyphen =
+            syllableIndex > 0 && hyphenated.contains(wordIndex) ? '-' : '';
+        final wordCol = startsWord
+            ? (words.isEmpty && chords.isEmpty
+                ? 0
+                : mx(words.length + 1, effEnd + 1))
+            : words.length;
+        words.write(' ' * (wordCol - words.length) + hyphen + text);
         if (chord != null) {
-          chords.write(' ' * (s - chords.length) + chord.display);
+          final chordCol = startsWord
+              ? wordCol
+              : mx(wordCol,
+                  prevInline ? chords.length : effEnd + 1);
+          writeChord(chord, chordCol);
         }
         prevInline = false;
       case ChordToken(:final chord, :final endOfLine):
         if (endOfLine) {
-          final s = mx(words.length + 1, chords.length + 1);
-          chords.write(' ' * (s - chords.length) + chord.display);
+          writeChord(chord, mx(words.length + 1, effEnd + 1));
         } else {
-          final s = prevInline
-              ? chords.length
-              : (chords.isEmpty ? 0 : chords.length + 1);
-          chords.write(' ' * (s - chords.length) + chord.display);
+          writeChord(chord, prevInline ? chords.length : effEnd + 1);
         }
         prevInline = false;
       case InlineToken(:final text, :final endOfLine):
         if (endOfLine) {
-          final s = mx(words.length + 1, chords.length + 1);
+          final s = mx(words.length + 1, effEnd + 1);
           chords.write(' ' * (s - chords.length) + text);
-          prevInline = false;
         } else {
           chords.write(text);
-          prevInline = true;
         }
+        prevInline = !endOfLine;
+        effEnd = chords.length;
       case RawToken(:final text):
-        final s = prevInline
-            ? chords.length
-            : (chords.isEmpty ? 0 : chords.length + 1);
+        final s = prevInline ? chords.length : effEnd + 1;
         chords.write(' ' * (s - chords.length) + text);
         prevInline = false;
+        effEnd = chords.length;
       case AnnotationToken(:final text):
         wordAnnots.add(text);
         prevInline = false;

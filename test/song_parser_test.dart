@@ -1,12 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:song_book/services/chord_transposer.dart';
 import 'package:song_book/services/example_song.dart';
 import 'package:song_book/services/song_parser.dart';
 
 ChordToken chord(String display, {bool endOfLine = false}) =>
     ChordToken(_chordOf(display), endOfLine: endOfLine);
 
-WordToken word(String text, [String? chordDisplay]) => WordToken(text,
-    chord: chordDisplay == null ? null : _chordOf(chordDisplay));
+SyllableToken syl(String text,
+        {String? chord, SyllableDash dash = SyllableDash.none}) =>
+    SyllableToken(
+        text, dash: dash, chord: chord == null ? null : _chordOf(chord));
+
+/// Слоги слова так же, как их режет парсер: первый несёт аккорд.
+List<SyllableToken> word(String text, [String? chordDisplay]) {
+  final base = wordSyllables(text);
+  return [
+    for (var i = 0; i < base.length; i++)
+      SyllableToken(base[i].text,
+          dash: base[i].dash,
+          chord: i == 0 && chordDisplay != null
+              ? _chordOf(chordDisplay)
+              : null),
+  ];
+}
 
 Chord _chordOf(String display) {
   final c = parseChord(display);
@@ -62,8 +78,8 @@ void main() {
           .single;
       expect(s.lines, hasLength(1));
       expect(s.lines.first.tokens, [
-        word('Hotel', 'C'),
-        word('California', 'G'),
+        ...word('Hotel', 'C'),
+        ...word('California', 'G'),
       ]);
     });
 
@@ -72,15 +88,63 @@ void main() {
           .sections
           .single;
       expect(s.lines.first.tokens, [
-        word('On', 'Am'), word('a'), word('dark'), word('desert'),
-        word('highway', 'F'),
+        ...word('On', 'Am'),
+        ...word('a'),
+        ...word('dark'),
+        ...word('desert'),
+        ...word('highway', 'F'),
       ]);
     });
 
-    test('два аккорда на слове: первый — поле, второй — токен после', () {
+    test('второй аккорд слова — первый аккорд своего слога', () {
       final s = parseSong('Em    E7\nскажите мне\n').sections.single;
       expect(s.lines.first.tokens, [
-        word('скажите', 'Em'), chord('E7'), word('мне'),
+        syl('ска', chord: 'Em', dash: SyllableDash.right),
+        syl('жи', dash: SyllableDash.both),
+        syl('те', chord: 'E7', dash: SyllableDash.left),
+        ...word('мне'),
+      ]);
+    });
+
+    test('аккорд над серединой слова без дефисов — слогу переноса', () {
+      final s = parseSong('Am  Dm\nслова строки\n').sections.single;
+      expect(s.lines.first.tokens, [
+        syl('сло', chord: 'Am', dash: SyllableDash.right),
+        syl('ва', chord: 'Dm', dash: SyllableDash.left),
+        syl('стро', dash: SyllableDash.right),
+        syl('ки', dash: SyllableDash.left),
+      ]);
+    });
+
+    test('аккорд над серединой дефисного слова — слогу с дефисом', () {
+      final s =
+          parseSong('C        F\nПе-ре-хо-дит о-сень в ле-то\n')
+              .sections
+              .single;
+      expect(s.lines.first.tokens, [
+        syl('Пе', chord: 'C', dash: SyllableDash.right),
+        syl('ре', dash: SyllableDash.both),
+        syl('хо', dash: SyllableDash.both),
+        syl('дит', chord: 'F', dash: SyllableDash.left),
+        syl('о', dash: SyllableDash.right),
+        syl('сень', dash: SyllableDash.left),
+        ...word('в'),
+        syl('ле', dash: SyllableDash.right),
+        syl('то', dash: SyllableDash.left),
+      ]);
+    });
+
+    test('дефисные части дополнительно режутся переносом', () {
+      expect(wordSyllables('лю-бимый'), [
+        syl('лю', dash: SyllableDash.right),
+        syl('би', dash: SyllableDash.both),
+        syl('мый', dash: SyllableDash.left),
+      ]);
+      expect(wordSyllables('лю-би-ма-я'), [
+        syl('лю', dash: SyllableDash.right),
+        syl('би', dash: SyllableDash.both),
+        syl('ма', dash: SyllableDash.both),
+        syl('я', dash: SyllableDash.left),
       ]);
     });
 
@@ -89,43 +153,56 @@ void main() {
           .sections
           .single;
       expect(s.lines.first.tokens, [
-        word('Шо', 'B7'), word('я'), word('вам'),
-        word('скажу', 'Em'), chord('E7', endOfLine: true),
+        ...word('Шо', 'B7'),
+        ...word('я'),
+        ...word('вам'),
+        syl('ска', chord: 'Em', dash: SyllableDash.right),
+        syl('жу', dash: SyllableDash.left),
+        chord('E7', endOfLine: true),
       ]);
     });
 
-    test('комбо: доп. аккорд на слове + два в конце строки', () {
+    test('комбо: аккорд на втором слоге + два в конце строки', () {
       final s =
           parseSong('Am  Dm         E7  A7\nслова строки\n').sections.single;
       expect(s.lines.first.tokens, [
-        word('слова', 'Am'), chord('Dm'), word('строки'),
-        chord('E7', endOfLine: true), chord('A7', endOfLine: true),
+        syl('сло', chord: 'Am', dash: SyllableDash.right),
+        syl('ва', chord: 'Dm', dash: SyllableDash.left),
+        syl('стро', dash: SyllableDash.right),
+        syl('ки', dash: SyllableDash.left),
+        chord('E7', endOfLine: true),
+        chord('A7', endOfLine: true),
       ]);
     });
 
-    test('аккорд левее первого слова — отдельное пустое слово', () {
+    test('аккорд левее первого слова — отдельный пустой слог', () {
       final s = parseSong('Am\n   On and on\n').sections.single;
       expect(s.lines.first.tokens, [
-        word('', 'Am'),
-        word('On'),
-        word('and'),
-        word('on'),
+        syl('', chord: 'Am'),
+        ...word('On'),
+        ...word('and'),
+        ...word('on'),
       ]);
     });
 
-    test('аккорд над пробелом между словами — отдельное пустое слово', () {
+    test('аккорд над пробелом между словами — отдельный пустой слог', () {
       const chordLine = '    A7       G#7~ A7           G#7 A7  Am';
       const wordLine = 'Где чинара        притулилась      под скалою,';
       final s = parseSong('$chordLine\n$wordLine\n').sections.single;
       expect(s.lines.single.tokens, [
-        word('Где'),
-        word('чинара', 'A7'),
-        word('', 'G#7'),
+        ...word('Где'),
+        syl('чи', chord: 'A7', dash: SyllableDash.right),
+        syl('на', dash: SyllableDash.both),
+        syl('ра', dash: SyllableDash.left),
+        syl('', chord: 'G#7'),
         const InlineToken('~'),
-        word('притулилась', 'A7'),
-        word('', 'G#7'),
-        word('под', 'A7'),
-        word('скалою,', 'Am'),
+        syl('при', chord: 'A7', dash: SyllableDash.right),
+        syl('ту', dash: SyllableDash.both),
+        syl('ли', dash: SyllableDash.both),
+        syl('лась', dash: SyllableDash.left),
+        syl('', chord: 'G#7'),
+        ...word('под', 'A7'),
+        ...word('скалою,', 'Am'),
       ]);
     });
 
@@ -163,34 +240,75 @@ void main() {
     test('аккорды встают над началами слов', () {
       final song = ParsedSong([
         Section(lines: [
-          Line([word('Hotel', 'C'), word('California', 'G')]),
+          Line([...word('Hotel', 'C'), ...word('California', 'G')]),
         ]),
       ]);
       expect(renderSong(song), 'C     G\nHotel California\n');
     });
 
-    test('доп. аккорд на слове — сразу за основным', () {
+    test('аккорд, влезающий в слог, не дефисирует слово', () {
       final song = ParsedSong([
         Section(lines: [
-          Line([word('On', 'Am'), chord('Dm')]),
+          Line([
+            syl('ска', chord: 'Em', dash: SyllableDash.right),
+            syl('жи', dash: SyllableDash.both),
+            syl('те', chord: 'G', dash: SyllableDash.left),
+            ...word('мне'),
+          ]),
         ]),
       ]);
-      expect(renderSong(song), 'Am Dm\nOn\n');
+      expect(renderSong(song), 'Em   G\nскажите мне\n');
     });
 
-    test('слово выравнивается под аккорд, сдвинутый доп. аккордами', () {
+    test('дефисы исходника не переносятся в пересборку без нужды', () {
+      expect(renderSong(parseSong('  Am\nлю-би-ма-я\n'), fromSource: false),
+          'Am\nлюбимая\n');
+    });
+
+    test('аккорд, не влезающий в слог, дефисирует слово', () {
+      expect(
+          renderSong(parseSong('C      G#7\nПе-ре-хо-дит\n'), fromSource: false),
+          'C    G#7\nПе-ре-хо-дит\n');
+    });
+
+    test('доп. аккорды на не-первом слоге дефисируют слово', () {
       final song = ParsedSong([
         Section(lines: [
-          Line([word('ah', 'A'), chord('B'), chord('C'), word('boo', 'Bb')]),
+          Line([
+            syl('ска', chord: 'Em', dash: SyllableDash.right),
+            syl('жи', dash: SyllableDash.both),
+            syl('те', chord: 'E7', dash: SyllableDash.left),
+            chord('A7'),
+            ...word('мне'),
+          ]),
         ]),
       ]);
-      expect(renderSong(song), 'A B C Bb\nah    boo\n');
+      final rendered = renderSong(song);
+      expect(rendered.split('\n')[1], contains('ска-жи-те'));
+    });
+
+    test('доп. аккорд на слоге — сразу за основным', () {
+      final song = ParsedSong([
+        Section(lines: [
+          Line([syl('On', chord: 'Am'), chord('Dm')]),
+        ]),
+      ]);
+      expect(renderSong(song), 'Am  Dm\nOn\n');
+    });
+
+    test('слог выравнивается под аккорд, сдвинутый доп. аккордами', () {
+      final song = ParsedSong([
+        Section(lines: [
+          Line([syl('ah', chord: 'A'), chord('B'), chord('C'), ...word('boo', 'Bb')]),
+        ]),
+      ]);
+      expect(renderSong(song), 'A  B  C  Bb\nah       boo\n');
     });
 
     test('хвостовой аккорд — за последним словом', () {
       final song = ParsedSong([
         Section(lines: [
-          Line([word('highway'), chord('F', endOfLine: true)]),
+          Line([...word('highway'), chord('F', endOfLine: true)]),
         ]),
       ]);
       expect(renderSong(song), '        F\nhighway\n');
@@ -206,14 +324,56 @@ void main() {
     });
   });
 
+  group('стабильность при транспонировании', () {
+    const content = 'C        F\nПе-ре-хо-дит о-сень в ле-то\n';
+
+    List<String> canonicalInKeys() => [
+          for (var s = 0; s < 12; s++)
+            renderSong(parseSong(transposeSongContent(content, s)),
+                fromSource: false),
+        ];
+
+    test('строки слов не меняются', () {
+      expect(
+          canonicalInKeys().map((l) => l.split('\n')[1]).toSet().single,
+          'Переходит осень в лето');
+    });
+
+    test('колонки аккордов не двигаются', () {
+      final columns = canonicalInKeys()
+          .map((l) => l.split('\n').first)
+          .map((line) => RegExp(r'\S+')
+              .allMatches(line)
+              .map((m) => m.start)
+              .toList()
+              .join(','))
+          .toSet();
+      expect(columns.single, '0,6');
+    });
+
+    test('эффективная ширина одинакова для всех написаний', () {
+      final widths = [for (var s = 0; s < 12; s++) transposeSongContent('F\n', s)]
+          .map((line) => parseChord(line.trim()))
+          .whereType<Chord>()
+          .map(chordWidth)
+          .toSet();
+      expect(widths.single, 2);
+    });
+  });
+
   group('кириллические двойники', () {
     test('«С7» кириллицей распознаётся и нормализуется в C7', () {
       final s = parseSong('  G        C            С7\nГоворит, послухайте\n')
           .sections
           .single;
       expect(s.lines.first.tokens, [
-        word('Говорит,', 'G'),
-        word('послухайте', 'C'),
+        syl('Го', dash: SyllableDash.right),
+        syl('во', chord: 'G', dash: SyllableDash.both),
+        syl('рит,', dash: SyllableDash.left),
+        syl('по', dash: SyllableDash.right),
+        syl('слу', chord: 'C', dash: SyllableDash.both),
+        syl('хай', dash: SyllableDash.both),
+        syl('те', dash: SyllableDash.left),
         chord('C7', endOfLine: true),
       ]);
     });
@@ -221,7 +381,7 @@ void main() {
     test('канонический рендер выводит латиницу', () {
       final song = parseSong('  G        C            С7\nГоворит, послухайте\n');
       expect(renderSong(song, fromSource: false),
-          'G        C          C7\nГоворит, послухайте\n');
+          '  G        C        C7\nГоворит, послухайте\n');
     });
 
     test('исходник не трогаем — байт-в-байт', () {
@@ -239,8 +399,13 @@ void main() {
       final s = parseSong(both).sections.single;
       expect(s.lines, hasLength(1));
       expect(s.lines.first.tokens, [
-        word('Говорит,', 'G'),
-        word('послухайте', 'C'),
+        syl('Го', chord: 'G', dash: SyllableDash.right),
+        syl('во', dash: SyllableDash.both),
+        syl('рит,', dash: SyllableDash.left),
+        syl('по', chord: 'C', dash: SyllableDash.right),
+        syl('слу', dash: SyllableDash.both),
+        syl('хай', dash: SyllableDash.both),
+        syl('те', dash: SyllableDash.left),
         const InlineToken('// you can do C7 here', endOfLine: true),
         AnnotationToken('/\u0024%^&/ slower than  in the chorus'),
       ]);
@@ -274,7 +439,8 @@ void main() {
     test('строка текста с хвостом-пометкой', () {
       final s = parseSong('Припев (2 раза)\n').sections.single;
       expect(s.lines.single.tokens, [
-        word('Припев'),
+        syl('При', dash: SyllableDash.right),
+        syl('пев', dash: SyllableDash.left),
         const AnnotationToken('(2 раза)'),
       ]);
       expect(renderSong(parseSong('Припев (2 раза)\n'), fromSource: false),
@@ -284,7 +450,7 @@ void main() {
 
   group('канонический рендер (fromSource: false)', () {
     test('пример песни: аккорды над началами слов, разметка выравнена', () {
-      final pad = ' ' * 15; // от Am до F — колонка начала последнего слова
+      final pad = ' ' * 16; // от Am до F — колонка начала последнего слова
       final padEnd = ' ' * 20; // от C до G — за концом последнего слова
       final expected = 'Пример песни\n'
           '\n'
@@ -294,7 +460,7 @@ void main() {
           '\n'
           '[Куплет 1]\n'
           'Am${pad}F\n'
-          'On a dark desert highway\n'
+          'On  a dark desert highway\n'
           'C${padEnd}G\n'
           'Cool wind in my hair\n'
           '\n'
@@ -332,7 +498,7 @@ void main() {
     test('аккорды конца строки — за последним словом', () {
       final song = parseSong('B7       Em         E7\nШо я вам скажу\n');
       expect(renderSong(song, fromSource: false),
-          'B7       Em    E7\nШо я вам скажу\n');
+          'B7        Em    E7\nШо  я вам скажу\n');
     });
 
     test('конструктор секции без titleSource пишет заголовок в скобках', () {
@@ -355,6 +521,12 @@ void main() {
       expect(renderSong(s, fromSource: false),
           '    A7     G#7~ A7          G#7 A7  Am\n'
           'Где чинара      притулилась     под скалою,\n');
+    });
+
+    test('слова без внутрисловных смен — без дефисов', () {
+      const input = 'C        F\nПе-ре-хо-дит о-сень в ле-то\n';
+      expect(renderSong(parseSong(input), fromSource: false),
+          'C     F\nПереходит осень в лето\n');
     });
   });
 
@@ -399,15 +571,15 @@ void main() {
     test('аккорды над текстом: G#7~A7 разбивается на аккорды и ~', () {
       final s = parseSong('G#7~A7\nслово\n').sections.single;
       expect(s.lines.single.tokens, [
-        word('слово', 'G#7'),
+        syl('сло', chord: 'G#7', dash: SyllableDash.right),
         const InlineToken('~'),
-        chord('A7'),
+        syl('во', chord: 'A7', dash: SyllableDash.left),
       ]);
     });
 
     test('аккорды над текстом: ~ рендерится вплотную', () {
       expect(renderSong(parseSong('G#7~A7\nслово\n'), fromSource: false),
-          'G#7~A7\nслово\n');
+          'G#7~A7\nсло-во\n');
     });
   });
 }
