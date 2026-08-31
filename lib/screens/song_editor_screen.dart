@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
+import '../services/chord_transposer.dart';
+import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 
 /// Экран добавления / редактирования песни.
@@ -56,6 +58,80 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
 
   bool get _hasChanges =>
       _titleCtrl.text != _origTitle || _contentCtrl.text != _origContent;
+
+  Future<void> _replaceChord() async {
+    final fromCtrl = TextEditingController();
+    final toCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Заменить аккорд'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: fromCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Найти аккорд',
+                hintText: 'Am',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: toCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Заменить на',
+                hintText: 'Bm',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Заменить'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    final fromText = fromCtrl.text.trim();
+    final toText = toCtrl.text.trim();
+    fromCtrl.dispose();
+    toCtrl.dispose();
+    if (ok != true) return;
+
+    final from = parseChord(fromText);
+    final to = parseChord(toText);
+    if (from == null || to == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Введите корректные аккорды')),
+      );
+      return;
+    }
+
+    final result = replaceChordContent(_contentCtrl.text, from, to);
+    if (result.count == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Аккорд не найден')),
+      );
+      return;
+    }
+
+    setState(() => _contentCtrl.text = result.content);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Заменено аккордов: ${result.count}')),
+    );
+  }
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
@@ -132,6 +208,11 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         appBar: AppBar(
           title: Text(isNew ? 'Новая песня' : 'Редактировать'),
           actions: [
+            IconButton(
+              tooltip: 'Заменить аккорд',
+              icon: const Icon(Icons.find_replace),
+              onPressed: _replaceChord,
+            ),
             IconButton(
               tooltip: 'Сохранить',
               onPressed: _saving ? null : _save,

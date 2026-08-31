@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:song_book/services/chord_transposer.dart';
+import 'package:song_book/services/song_parser.dart';
 
 void main() {
   group('transposeSongContent', () {
@@ -92,6 +93,44 @@ e|-------0---------------|
     test('переходы через ~ транспонируют оба аккорда', () {
       expect(transposeSongContent('G#7~A7', 1), 'A7~Bb7');
       expect(transposeSongContent('Em75-   G#7~A7 Dm', 1), 'Fm75-   A7~Bb7 Ebm');
+    });
+  });
+
+  group('replaceChordContent', () {
+    test('заменяет аккорд и считает замены', () {
+      final r = replaceChordContent(
+          'Am F C Am', parseChord('Am')!, parseChord('Bm')!);
+      expect(r.content, 'Bm F C Bm');
+      expect(r.count, 2);
+    });
+
+    test('изменение длины компенсируется пробелами', () {
+      final r = replaceChordContent(
+          'Am   F   Am', parseChord('Am')!, parseChord('Bbm')!);
+      expect(r.content, 'Bbm  F   Bbm');
+      expect(r.count, 2);
+    });
+
+    test('не трогает другие аккорды с той же тоникой', () {
+      final r = replaceChordContent(
+          'Am7 Am A', parseChord('Am')!, parseChord('Bm')!);
+      expect(r.content, 'Am7 Bm A');
+      expect(r.count, 1);
+    });
+
+    test('текст и табулатуры не трогаем', () {
+      const content = 'Am   F\nOn a dark highway\ne|--0--|\n';
+      final r =
+          replaceChordContent(content, parseChord('Am')!, parseChord('Bm')!);
+      expect(r.content, 'Bm   F\nOn a dark highway\ne|--0--|\n');
+      expect(r.count, 1);
+    });
+
+    test('from == to — без изменений', () {
+      final r = replaceChordContent(
+          'Am F', parseChord('Am')!, parseChord('Am')!);
+      expect(r.content, 'Am F');
+      expect(r.count, 0);
     });
   });
 }

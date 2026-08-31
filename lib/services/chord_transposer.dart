@@ -1,4 +1,4 @@
-/// Транспонирование аккордов в тексте песни (надстрочный формат).
+/// Транспонирование и замена аккордов в тексте песни (надстрочный формат).
 ///
 /// Строки с текстом и табулатурами не меняются. Чтобы аккорды не «уезжали»
 /// со своих слов, изменение длины аккорда компенсируется пробелами после него.
@@ -24,12 +24,36 @@ String transposeSongContent(String content, int semitones) {
       .join('\n');
 }
 
+/// Заменяет все вхождения аккорда [from] на [to] в аккордных строках.
+/// Возвращает новый текст и число замен.
+({String content, int count}) replaceChordContent(
+    String content, Chord from, Chord to) {
+  if (from == to) return (content: content, count: 0);
+  var count = 0;
+  final result = content.split('\n').map((line) {
+    if (isTabLineText(line) || !isChordLineText(line)) return line;
+    return _transformChordLine(line, (c) {
+      if (c == from) {
+        count++;
+        return to;
+      }
+      return c;
+    });
+  }).join('\n');
+  return (content: result, count: count);
+}
+
 String _transposeLine(String line, int semitones) {
   if (isTabLineText(line) || !isChordLineText(line)) return line;
   return _transposeChordLine(line, semitones);
 }
 
-String _transposeChordLine(String line, int semitones) {
+String _transposeChordLine(String line, int semitones) =>
+    _transformChordLine(line, (c) => _transposeChord(c, semitones));
+
+/// Перебирает аккорды строки, применяет [transform] и пересобирает строку,
+/// компенсируя изменение длины аккордов пробелами.
+String _transformChordLine(String line, Chord Function(Chord) transform) {
   final pieces = scanChordLine(line);
   final out = StringBuffer();
   for (var i = 0; i < pieces.length; i++) {
@@ -39,12 +63,12 @@ String _transposeChordLine(String line, int semitones) {
       continue;
     }
     final chord = p as ChordPiece;
-    final shifted = _transposeChord(chord.chord, semitones).display;
-    out.write(shifted);
+    final replaced = transform(chord.chord);
+    out.write(replaced.display);
     final next = i + 1 < pieces.length ? pieces[i + 1] : null;
     if (next is GapPiece && next.text.trim().isEmpty) {
       final hasNextAfterGap = i + 2 < pieces.length;
-      final delta = shifted.length - (chord.end - chord.start);
+      final delta = replaced.display.length - (chord.end - chord.start);
       out.write(_absorbDelta(next.text, delta, hasNextAfterGap));
       i++;
     }

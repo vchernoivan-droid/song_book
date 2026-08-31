@@ -17,6 +17,9 @@ class SongBookApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        inputDecorationTheme: const InputDecorationTheme(
+          hintStyle: TextStyle(color: Colors.black38),
+        ),
       ),
       home: const HomeScreen(),
     );
