@@ -123,28 +123,28 @@ void main() {
               .single;
       expect(s.lines.first.tokens, [
         syl('Пе', chord: 'C', dash: SyllableDash.right),
-        syl('ре', dash: SyllableDash.both),
-        syl('хо', dash: SyllableDash.both),
-        syl('дит', chord: 'F', dash: SyllableDash.left),
+        syl('-ре', dash: SyllableDash.both),
+        syl('-хо', dash: SyllableDash.both),
+        syl('-дит', chord: 'F', dash: SyllableDash.left),
         syl('о', dash: SyllableDash.right),
-        syl('сень', dash: SyllableDash.left),
+        syl('-сень', dash: SyllableDash.left),
         ...word('в'),
         syl('ле', dash: SyllableDash.right),
-        syl('то', dash: SyllableDash.left),
+        syl('-то', dash: SyllableDash.left),
       ]);
     });
 
     test('дефисные части дополнительно режутся переносом', () {
       expect(wordSyllables('лю-бимый'), [
         syl('лю', dash: SyllableDash.right),
-        syl('би', dash: SyllableDash.both),
+        syl('-би', dash: SyllableDash.both),
         syl('мый', dash: SyllableDash.left),
       ]);
       expect(wordSyllables('лю-би-ма-я'), [
         syl('лю', dash: SyllableDash.right),
-        syl('би', dash: SyllableDash.both),
-        syl('ма', dash: SyllableDash.both),
-        syl('я', dash: SyllableDash.left),
+        syl('-би', dash: SyllableDash.both),
+        syl('-ма', dash: SyllableDash.both),
+        syl('-я', dash: SyllableDash.left),
       ]);
     });
 
@@ -260,31 +260,52 @@ void main() {
       expect(renderSong(song), 'Em   G\nскажите мне\n');
     });
 
-    test('дефисы исходника не переносятся в пересборку без нужды', () {
+    test('дефисы исходника сохраняются при пересборке', () {
+      // Am стоит над дефисом — под буквами «-би».
       expect(renderSong(parseSong('  Am\nлю-би-ма-я\n'), fromSource: false),
-          'Am\nлюбимая\n');
+          '   Am\nлю-би-ма-я\n');
     });
 
-    test('аккорд, не влезающий в слог, дефисирует слово', () {
+    test('аккорд прижат к слогу, дефисы исходника сохраняются', () {
       expect(
           renderSong(parseSong('C      G#7\nПе-ре-хо-дит\n'), fromSource: false),
-          'C    G#7\nПе-ре-хо-дит\n');
+          'C     G#7\nПе-ре-хо-дит\n');
     });
 
-    test('доп. аккорды на не-первом слоге дефисируют слово', () {
-      final song = ParsedSong([
-        Section(lines: [
-          Line([
-            syl('ска', chord: 'Em', dash: SyllableDash.right),
-            syl('жи', dash: SyllableDash.both),
-            syl('те', chord: 'E7', dash: SyllableDash.left),
-            chord('A7'),
-            ...word('мне'),
+    group('растяжка слогов дефисами', () {
+      test('одиночная смена внутри слова — без дефисов', () {
+        expect(renderSong(parseSong('       D7\nпод скалою\n'), fromSource: false),
+            '       D7\nпод скалою\n');
+      });
+
+      test('смена на последнем слоге — без дефисов', () {
+        expect(
+            renderSong(parseSong('F7   Bb\nвечная пчела\n'), fromSource: false),
+            'F7   Bb\nвечная  пчела\n');
+      });
+
+      test('несколько смен в слове прижаты к слогам, без дефисов', () {
+        expect(renderSong(parseSong('F7 G Bb\nвечная\n'), fromSource: false),
+            'F7 G Bb\nвечная\n');
+      });
+
+      test('длинные имена растягивают слово дефисами', () {
+        expect(
+            renderSong(parseSong('F#7 G# Bb\nвеч-на-я\n'), fromSource: false),
+            'F#7 G# Bb\nвеч-на-я\n');
+      });
+      test('растяжка не дублирует дефис исходника', () {
+        final song = ParsedSong([
+          Section(lines: [
+            Line([
+              syl('веч', chord: 'C#m7', dash: SyllableDash.right),
+              syl('-на', chord: 'G#7', dash: SyllableDash.both),
+              syl('-я', chord: 'Bb', dash: SyllableDash.left),
+            ]),
           ]),
-        ]),
-      ]);
-      final rendered = renderSong(song);
-      expect(rendered.split('\n')[1], contains('ска-жи-те'));
+        ]);
+        expect(renderSong(song), 'C#m7 G#7 Bb\nвеч -на -я\n');
+      });
     });
 
     test('доп. аккорд на слоге — сразу за основным', () {
@@ -336,7 +357,7 @@ void main() {
     test('строки слов не меняются', () {
       expect(
           canonicalInKeys().map((l) => l.split('\n')[1]).toSet().single,
-          'Переходит осень в лето');
+          'Пе-ре-хо-дит о-сень в ле-то');
     });
 
     test('колонки аккордов не двигаются', () {
@@ -348,7 +369,7 @@ void main() {
               .toList()
               .join(','))
           .toSet();
-      expect(columns.single, '0,6');
+      expect(columns.single, '0,9');
     });
 
     test('эффективная ширина одинакова для всех написаний', () {
@@ -434,6 +455,20 @@ void main() {
           [chord('Am'), chord('F'), const InlineToken('// быстро', endOfLine: true)]);
       expect(renderSong(parseSong('Am F // быстро\n'), fromSource: false),
           'Am   F // быстро\n');
+    });
+
+    test('тире в середине строки — текст, а не аннотация', () {
+      final chordLine = 'Dm${' ' * 26}Gm  A7';
+      const wordLine = 'Сладострастная отрава – золотая Брич-Мулла';
+      final content = '$chordLine\n$wordLine\n';
+      final s = parseSong(content).sections.single;
+      expect(s.lines.single.tokens.whereType<AnnotationToken>(), isEmpty);
+      expect(
+          s.lines.single.tokens,
+          contains(
+              syl('та', chord: 'Gm', dash: SyllableDash.both)));
+      expect(s.lines.single.tokens,
+          contains(syl('Брич', chord: 'A7', dash: SyllableDash.right)));
     });
 
     test('строка текста с хвостом-пометкой', () {
@@ -523,10 +558,9 @@ void main() {
           'Где чинара      притулилась     под скалою,\n');
     });
 
-    test('слова без внутрисловных смен — без дефисов', () {
+    test('дефисное слово: дефисы сохраняются, аккорд над своим слогом', () {
       const input = 'C        F\nПе-ре-хо-дит о-сень в ле-то\n';
-      expect(renderSong(parseSong(input), fromSource: false),
-          'C     F\nПереходит осень в лето\n');
+      expect(renderSong(parseSong(input), fromSource: false), input);
     });
   });
 

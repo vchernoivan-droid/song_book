@@ -370,6 +370,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
             child: SingleChildScrollView(

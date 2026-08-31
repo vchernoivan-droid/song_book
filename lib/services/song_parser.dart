@@ -4,18 +4,22 @@
 /// Модель: ParsedSong → Section[] → Line[] → Token[] (Syllable | Chord |
 /// Raw | Annotation | Inline). Атом текста — слог ([SyllableToken]):
 /// дефисные части исходника и слова без дефисов режутся на слоги
-/// переносом (syllable_split); сами дефисы исходника модель не хранит —
-/// при пересборке слово дефисируется, только когда аккорду нужен
-/// конкретный слог. Пара физических строк «аккорды над текстом»
-/// склеивается в одну [Line]: первый аккорд слога — поле
+/// переносом (syllable_split); ведущий дефис части исходника входит в
+/// текст слога и сохраняется при пересборке, новых дефисов пересборка
+/// не добавляет — кроме стыков, растянутых раскладкой (см.
+/// [_renderMerged]).
+/// Пара физических строк «аккорды над текстом» склеивается в одну
+/// [Line]: первый аккорд слога — поле
 /// SyllableToken.chord (пересечение колонок), дополнительные смены на
 /// слоге — ChordToken сразу после него, аккорды за концом слов —
 /// ChordToken(endOfLine) в конце списка. Хвосты-аннотации («// можно C7»,
 /// «(2 раза)») — AnnotationToken с флагом строки-хозяина. Колонки и
 /// пробелы не хранятся: нетронутая строка помнит исходный текст
-/// ([Line.source]) и рендерится байт-в-байт; изменённая собирается заново —
-/// аккорды над началами слогов, за аккордами без #/b резервируется
-/// колонка под знак, чтобы вёрстка не переезжала при транспонировании.
+/// ([Line.source]) и рендерится байт-в-байт; изменённая собирается заново:
+/// внутри слова аккорды прижаты к слогам по печатной ширине, и когда имя
+/// не влезает, стык растягивается дефисом; между словами за аккордами
+/// без #/b резервируется колонка под знак — чтобы вёрстка не переезжала
+/// при транспонировании.
 library;
 
 import 'syllable_split.dart';
@@ -56,6 +60,9 @@ sealed class Token {
 enum SyllableDash { none, right, both, left }
 
 class SyllableToken extends Token {
+  /// Текст слога; может начинаться с дефиса исходника («-Мулла»),
+  /// растяжка раскладки добавляет такой же, но нового не порождает
+  /// в модели — он существует только в рендере.
   final String text;
 
   final SyllableDash dash;
@@ -418,10 +425,9 @@ Line _mergePair(String over, String under) {
 }
 
 /// Слоги слова, начинающегося в колонке [base]: части, разделённые
-/// дефисами исходника, дополнительно режутся переносом. Слог владеет
-/// своим хвостовым дефисом исходника — колонки привязки совпадают с
-/// исходником. [SyllableToken.dash] — позиция в слове, дефисы исходника
-/// не хранятся.
+/// дефисами исходника, дополнительно режутся переносом. Ведущий дефис
+/// части входит в текст и диапазон её первого слога — колонки привязки
+/// совпадают с исходником. [SyllableToken.dash] — позиция в слове.
 List<({String text, SyllableDash dash, int start, int end})>
     _wordSyllables(String word, int base) {
   final spans = <({String text, int start, int end})>[];
@@ -433,15 +439,13 @@ List<({String text, SyllableDash dash, int start, int end})>
     final parts = hyphenParts ?? [word];
     var cursor = 0;
     for (var i = 0; i < parts.length; i++) {
-      final lastPart = i == parts.length - 1;
       final syllables = splitWordToSyllables(parts[i]);
       for (var j = 0; j < syllables.length; j++) {
         final s = syllables[j];
-        final trailing = j == syllables.length - 1 && !lastPart ? 1 : 0;
-        spans.add((text: s, start: cursor, end: cursor + s.length + trailing));
-        cursor += s.length;
+        final text = i > 0 && j == 0 ? '-$s' : s;
+        spans.add((text: text, start: cursor, end: cursor + text.length));
+        cursor += text.length;
       }
-      if (!lastPart) cursor++;
     }
   }
 
@@ -584,56 +588,17 @@ String _renderProgression(List<Token> tokens) {
 int chordWidth(Chord chord) =>
     chord.display.length + (chord.root.length == 1 ? 1 : 0);
 
-/// Номера слов, которые при пересборке дефисируются: аккорд на не-первом
-/// слоге не влезает в слог (по эффективной ширине) или слог несёт
-/// доп-аккорды — без дефисов непонятно, к какому слогу относится смена.
-Set<int> _hyphenatedWords(List<Token> tokens) {
-  final hyphenated = <int>{};
-  var wordIndex = -1;
-  var syllableIndex = 0;
-  var lastSyllableIndex = -1;
-  var lastSyllableWord = -1;
-  for (final t in tokens) {
-    switch (t) {
-      case SyllableToken(:final text, :final dash, :final chord):
-        if (dash == SyllableDash.none || dash == SyllableDash.right) {
-          wordIndex++;
-          syllableIndex = 0;
-        } else {
-          syllableIndex++;
-        }
-        lastSyllableIndex = syllableIndex;
-        lastSyllableWord = wordIndex;
-        if (chord != null &&
-            syllableIndex > 0 &&
-            chordWidth(chord) > text.length) {
-          hyphenated.add(wordIndex);
-        }
-      case ChordToken(endOfLine: false):
-        if (lastSyllableIndex > 0) hyphenated.add(lastSyllableWord);
-      case ChordToken(endOfLine: true):
-      case InlineToken():
-      case RawToken():
-      case AnnotationToken():
-        break;
-    }
-  }
-  return hyphenated;
-}
-
 /// Пересборка слитной строки единым проходом слева направо: слог и его
-/// первый аккорд встают в одну колонку (слоги одного слова — вплотную,
-/// дефисы — только по [_hyphenatedWords]), следующее содержимое очищает
-/// эффективный конец предыдущего аккорда [chordWidth], аккорды конца
-/// строки — за последним словом.
+/// первый аккорд встают в одну колонку. Слоги одного слова пишутся
+/// вплотную; когда имя аккорда не влезает в свой слог вплотную, слог
+/// сдвигается вправо и стык получает дефис — слово растягивается ровно
+/// настолько, насколько его растолкали аккорды. Между словами и в
+/// хвосте строки действует резерв [chordWidth].
 String _renderMerged(List<Token> tokens) {
-  final hyphenated = _hyphenatedWords(tokens);
   final chords = StringBuffer();
   final words = StringBuffer();
   final wordAnnots = <String>[];
   var prevInline = false;
-  var wordIndex = -1;
-  var syllableIndex = 0;
   var effEnd = -1;
 
   int mx(int a, int b) => a > b ? a : b;
@@ -649,25 +614,23 @@ String _renderMerged(List<Token> tokens) {
         final startsWord =
             dash == SyllableDash.none || dash == SyllableDash.right;
         if (startsWord) {
-          wordIndex++;
-          syllableIndex = 0;
+          final wordCol = (words.isEmpty && chords.isEmpty)
+              ? 0
+              : mx(words.length + 1, effEnd + 1);
+          words.write(' ' * (wordCol - words.length) + text);
+          if (chord != null) writeChord(chord, wordCol);
+        } else if (chord == null) {
+          words.write(text);
         } else {
-          syllableIndex++;
-        }
-        final hyphen =
-            syllableIndex > 0 && hyphenated.contains(wordIndex) ? '-' : '';
-        final wordCol = startsWord
-            ? (words.isEmpty && chords.isEmpty
-                ? 0
-                : mx(words.length + 1, effEnd + 1))
-            : words.length;
-        words.write(' ' * (wordCol - words.length) + hyphen + text);
-        if (chord != null) {
-          final chordCol = startsWord
-              ? wordCol
-              : mx(wordCol,
-                  prevInline ? chords.length : effEnd + 1);
-          writeChord(chord, chordCol);
+          final hyphen = text.startsWith('-');
+          final letters = words.length + (hyphen ? 1 : 0);
+          final col = mx(
+              letters,
+              prevInline ? chords.length : (chords.isEmpty ? 0 : chords.length + 1));
+          words.write(col > letters
+              ? '${' ' * (col - 1 - words.length)}${hyphen ? text : '-$text'}'
+              : text);
+          writeChord(chord, col);
         }
         prevInline = false;
       case ChordToken(:final chord, :final endOfLine):
@@ -753,20 +716,26 @@ bool isTabLineText(String line) {
 
 final RegExp _symbolStart = RegExp(r'^[^\p{L}\p{N}]', unicode: true);
 
+/// Одиночные дефисы и тире — пунктуация текста (разделитель частей
+/// фразы), а не маркер хвоста-аннотации.
+final RegExp _dashTokenRe = RegExp(r'^[-‒–—―−]+$');
+
 bool _isWordTokenText(String token) => !_symbolStart.hasMatch(token);
 
 bool _isChordTokenText(String token) => parseChord(token) != null;
 
 /// Делит строку на ведущую часть и хвост-аннотацию: хвост начинается с
 /// первого токена, стартующего с «символа» (не буква и не цифра: «//», «(»,
-/// «*»…), ведущая часть должна быть непустой и целиком подходить под
-/// [isLeading]. null — эвристика не сработала.
+/// «*»…); одиночные тире текстом остаются. Ведущая часть должна быть
+/// непустой и целиком подходить под [isLeading]. null — эвристика не
+/// сработала.
 ({String head, String annotation})? _splitAnnotation(
     String line, bool Function(String token) isLeading) {
   final tokens = RegExp(r'\S+').allMatches(line).toList();
   if (tokens.isEmpty) return null;
   var i = 0;
-  while (i < tokens.length && isLeading(tokens[i][0]!)) {
+  while (i < tokens.length &&
+      (isLeading(tokens[i][0]!) || _dashTokenRe.hasMatch(tokens[i][0]!))) {
     i++;
   }
   if (i == 0 || i == tokens.length) return null;

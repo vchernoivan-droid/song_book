@@ -25,7 +25,7 @@ void main() {
 
     test('качества аккордов сохраняются', () {
       expect(transposeSongContent('Am7 F#m7 Cmaj7 Dsus4 Bdim', 1),
-          'Bbm7 Gm7  C#maj7 Ebsus4 Cdim');
+          'Bbm7 Gm7 C#maj7 Ebsus4 Cdim');
     });
 
     test('слэш-аккорды транспонируют бас', () {
@@ -93,6 +93,20 @@ e|-------0---------------|
     test('переходы через ~ транспонируют оба аккорда', () {
       expect(transposeSongContent('G#7~A7', 1), 'A7~Bb7');
       expect(transposeSongContent('Em75-   G#7~A7 Dm', 1), 'Fm75-   A7~Bb7 Ebm');
+    });
+
+    test('~ не ломает выравнивание: колонки стартов сохраняются', () {
+      const content =
+          '           C#7~ D7              C#7~ D7         Gm\n'
+          'Где чинара          притулилась          под скалою,\n';
+      final transposed = transposeSongContent(content, -1);
+      expect(transposed.split('\n').first,
+          '           C7~  C#7             C7~  C#7        F#m');
+      final starts = scanChordLine(transposed.split('\n').first)
+          .whereType<ChordPiece>()
+          .map((p) => p.start)
+          .toList();
+      expect(starts, [11, 16, 32, 37, 48]);
     });
   });
 

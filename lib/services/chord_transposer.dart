@@ -51,26 +51,33 @@ String _transposeLine(String line, int semitones) {
 String _transposeChordLine(String line, int semitones) =>
     _transformChordLine(line, (c) => _transposeChord(c, semitones));
 
-/// Перебирает аккорды строки, применяет [transform] и пересобирает строку,
-/// компенсируя изменение длины аккордов пробелами.
+/// Перебирает аккорды строки, применяет [transform] и пересобирает
+/// строку, компенсируя изменение длины имён пробелами: накопленная
+/// невязка поглощается хвостовыми пробелами зазора — в том числе за
+/// inline-кусками вроде «~ », — чтобы аккорды не уезжали со своих
+/// колонок. Остаток, который погасить негде (склеенные аккорды, конец
+/// строки), просто сдвигает всё дальнейшее.
 String _transformChordLine(String line, Chord Function(Chord) transform) {
   final pieces = scanChordLine(line);
   final out = StringBuffer();
+  var pending = 0;
   for (var i = 0; i < pieces.length; i++) {
     final p = pieces[i];
-    if (p is GapPiece) {
-      out.write(p.text);
+    if (p is ChordPiece) {
+      final replaced = transform(p.chord);
+      out.write(replaced.display);
+      pending += replaced.display.length - (p.end - p.start);
       continue;
     }
-    final chord = p as ChordPiece;
-    final replaced = transform(chord.chord);
-    out.write(replaced.display);
-    final next = i + 1 < pieces.length ? pieces[i + 1] : null;
-    if (next is GapPiece && next.text.trim().isEmpty) {
-      final hasNextAfterGap = i + 2 < pieces.length;
-      final delta = replaced.display.length - (chord.end - chord.start);
-      out.write(_absorbDelta(next.text, delta, hasNextAfterGap));
-      i++;
+    final gap = (p as GapPiece).text;
+    final head = gap.trimRight();
+    final ws = gap.substring(head.length);
+    if (pending != 0 && ws.isNotEmpty) {
+      final adjusted = _absorbDelta(ws, pending, i + 1 < pieces.length);
+      pending += adjusted.length - ws.length;
+      out.write(head + adjusted);
+    } else {
+      out.write(gap);
     }
   }
   return out.toString();
