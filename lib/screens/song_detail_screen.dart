@@ -35,6 +35,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   bool _autoScroll = false;
   double _scrollPxPerSec = 0;
   Duration _lastElapsed = Duration.zero;
+  int _countdown = 0;
 
   @override
   void initState() {
@@ -165,8 +166,13 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     setState(() {
       _autoScroll = true;
       _scrollPxPerSec = _scrollPxPerSecond();
+      _countdown = 3;
     });
-    await Future.delayed(const Duration(seconds: 3));
+    while (_countdown > 0 && mounted && _autoScroll) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted || !_autoScroll) return;
+      setState(() => _countdown = _countdown - 1);
+    }
     if (!mounted || !_autoScroll) return;
     _lastElapsed = Duration.zero;
     _ticker.start();
@@ -174,7 +180,12 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   void _stopAutoScroll() {
     _ticker.stop();
-    if (mounted) setState(() => _autoScroll = false);
+    if (mounted) {
+      setState(() {
+        _autoScroll = false;
+        _countdown = 0;
+      });
+    }
   }
 
   Future<void> _delete() async {
@@ -373,10 +384,42 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollCtrl,
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              child: SelectableText(displayed, style: mono),
+            child: Stack(
+              children: [
+                SingleChildScrollView(
+                  controller: _scrollCtrl,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  child: SelectableText(displayed, style: mono),
+                ),
+                if (_countdown > 0)
+                  Center(
+                    child: Container(
+                      width: 120,
+                      height: 120,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surface
+                            .withValues(alpha: 0.8),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 3,
+                        ),
+                      ),
+                      child: Text(
+                        '$_countdown',
+                        style: TextStyle(
+                          fontSize: 64,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           _buildAutoScrollBar(),
