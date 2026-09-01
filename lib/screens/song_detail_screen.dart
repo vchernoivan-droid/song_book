@@ -23,7 +23,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     with SingleTickerProviderStateMixin {
   final _storage = SongStorage();
   late Song _song = widget.song;
-  late int _semitones = _song.transpose;
+  late int _semitones = ((_song.transpose % 12) + 12) % 12;
   late int _fontSize = _song.fontSize;
   late int _scrollSpeed = _song.scrollSpeed;
   Future<void> _persistChain = Future.value();
@@ -74,7 +74,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   }
 
   void _shiftTo(int value) {
-    final v = value.clamp(-11, 11);
+    final v = ((value % 12) + 12) % 12;
     if (v == _semitones) return;
     setState(() => _semitones = v);
     _persist(v, _fontSize, _scrollSpeed);
@@ -132,8 +132,10 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     var physical = parts.length;
     if (parts.isNotEmpty && parts.last.isEmpty) physical--;
 
-    final tokenLines =
-        parsed.sections.fold(0, (sum, s) => sum + s.lines.length);
+    final tokenLines = parsed.sections.fold(
+      0,
+      (sum, s) => sum + s.lines.length,
+    );
     return autoScrollPxPerSecond(
       linesPerMinute: _scrollSpeed,
       tokenLines: tokenLines,
@@ -206,11 +208,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     }
   }
 
-  String get _semitonesLabel {
-    final v = _semitones;
-    return v == 0 ? '0' : v > 0 ? '+$v' : '$v';
-  }
-
   Widget _buildAutoScrollBar() {
     return SafeArea(
       top: false,
@@ -267,8 +264,9 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                       return const LinearProgressIndicator(value: 0);
                     }
                     final max = pos.maxScrollExtent;
-                    final value =
-                        max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
+                    final value = max <= 0
+                        ? 0.0
+                        : (pos.pixels / max).clamp(0.0, 1.0);
                     return LinearProgressIndicator(value: value);
                   },
                 ),
@@ -283,7 +281,10 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   @override
   Widget build(BuildContext context) {
     final mono = TextStyle(
-        fontFamily: 'Roboto Mono', fontSize: _fontSize.toDouble(), height: 1.35);
+      fontFamily: 'Roboto Mono',
+      fontSize: _fontSize.toDouble(),
+      height: 1.35,
+    );
     final displayed = _song.content.isEmpty ? '(пусто)' : _displayedBody;
     return Scaffold(
       appBar: AppBar(
@@ -308,7 +309,9 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             ),
             child: Text(
               '$_fontSize',
-              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+              style: const TextStyle(
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
             ),
           ),
           IconButton(
@@ -322,22 +325,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.keyboard_arrow_down),
             onPressed: () => _shiftTo(_semitones - 1),
-          ),
-          Container(
-            width: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: _semitones == 0
-                    ? Theme.of(context).dividerColor
-                    : Theme.of(context).colorScheme.primary,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              _semitonesLabel,
-              style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-            ),
           ),
           IconButton(
             tooltip: 'На полтона выше',
@@ -375,10 +362,9 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                       height: 120,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surface
-                            .withValues(alpha: 0.8),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surface.withValues(alpha: 0.8),
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: Theme.of(context).colorScheme.primary,

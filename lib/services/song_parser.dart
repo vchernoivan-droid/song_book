@@ -308,10 +308,9 @@ ParsedSong parseSong(String content) {
 ({int pitch, String name})? _firstChord(List<String> lines) {
   for (final line in lines) {
     if (isTabLineText(line) || !isChordLineText(line)) continue;
-    final m = _chordRe.firstMatch(_normalizeLookalikes(line));
-    if (m == null) continue;
-    final root = m[1]! + (m[2] ?? '');
-    return (pitch: _pitchOf(root), name: root);
+    for (final l in lexLine(line)) {
+      if (l is ChordLex) return (pitch: l.chord.root, name: l.rootName);
+    }
   }
   return null;
 }
@@ -382,13 +381,12 @@ bool _isLyricLine(String line) =>
     !isTabLineText(line) && !isChordLineText(line);
 
 Line _lyricLine(String line) {
-  final split = _splitAnnotation(line, _isWordTokenText);
-  final head = split?.head ?? line;
+  final split = _lyricSplit(line);
   final tokens = <Token>[
-    for (final m in RegExp(r'\S+').allMatches(head)) ...wordSyllables(m[0]!),
+    for (final run in _runsOf(line, split.head)) ...wordSyllables(run.text),
   ];
-  if (split != null) {
-    tokens.add(AnnotationToken(split.annotation));
+  if (split.annotation != null) {
+    tokens.add(AnnotationToken(split.annotation!));
   }
   return Line(tokens);
 }
@@ -398,15 +396,29 @@ final RegExp _glueRe = RegExp(r'^~+$');
 
 Line _progressionLine(String line, int tonic) {
   final tokens = <Token>[];
-  for (final p in scanChordLine(line)) {
-    if (p is ChordPiece) {
-      tokens.add(ChordToken(Chord.fromPitch(p.chord, tonic)));
-      continue;
+  int? gapStart;
+  var gapEnd = 0;
+
+  void flushGap() {
+    if (gapStart != null) {
+      final text = line.substring(gapStart!, gapEnd).trim();
+      if (text.isNotEmpty) {
+        tokens.add(InlineToken(text, glued: _glueRe.hasMatch(text)));
+      }
     }
-    final text = (p as GapPiece).text.trim();
-    if (text.isEmpty) continue;
-    tokens.add(InlineToken(text, glued: _glueRe.hasMatch(text)));
+    gapStart = null;
   }
+
+  for (final l in lexLine(line)) {
+    if (l is ChordLex) {
+      flushGap();
+      tokens.add(ChordToken(Chord.fromPitch(l.chord, tonic)));
+    } else {
+      gapStart ??= l.start;
+      gapEnd = l.end;
+    }
+  }
+  flushGap();
   return Line(tokens);
 }
 
@@ -420,11 +432,9 @@ Line _progressionLine(String line, int tonic) {
 /// аккордной строки разбирается на плоские куски: аккорды — ChordToken,
 /// текст — InlineToken. Хвост текстовой строки — [AnnotationToken].
 Line _mergePair(String over, String under, int tonic) {
-  final underSplit = _splitAnnotation(under, _isWordTokenText);
-  final wordPart = underSplit?.head ?? under;
-
-  final wordMatches = RegExp(r'\S+').allMatches(wordPart).toList();
-  final pieces = scanChordLine(over);
+  final underSplit = _lyricSplit(under);
+  final wordRuns = _runsOf(under, underSplit.head);
+  final lex = lexLine(over);
 
   final slotText = <String>[];
   final slotStart = <int>[];
@@ -432,8 +442,8 @@ Line _mergePair(String over, String under, int tonic) {
   final slotDash = <SyllableDash>[];
   final slotChord = <Chord?>[];
   final slotExtras = <List<Token>>[];
-  for (final m in wordMatches) {
-    for (final s in _wordSyllables(m[0]!, m.start)) {
+  for (final run in wordRuns) {
+    for (final s in _wordSyllables(run.text, run.start)) {
       slotText.add(s.text);
       slotStart.add(s.start);
       slotEnd.add(s.end);
@@ -443,15 +453,31 @@ Line _mergePair(String over, String under, int tonic) {
     }
   }
 
-  final lastWordEnd = wordMatches.last.start + wordMatches.last[0]!.length;
+  final lastWordEnd = wordRuns.last.start + wordRuns.last.text.length;
   final lineEnd = <Token>[];
   var lastChordSlot = -1;
   var seenChord = false;
+  int? gapStart;
+  var gapEnd = 0;
 
-  int chordSlot(ChordPiece p) {
+  void flushGap() {
+    if (gapStart == null) return;
+    final text = over.substring(gapStart!, gapEnd).trim();
+    gapStart = null;
+    if (text.isEmpty || !seenChord) return;
+    if (_glueRe.hasMatch(text)) {
+      if (lastChordSlot >= 0) {
+        slotExtras[lastChordSlot].add(InlineToken(text, glued: true));
+      }
+    } else {
+      lineEnd.add(InlineToken(text));
+    }
+  }
+
+  int chordSlot(ChordLex l) {
     for (var i = 0; i < slotText.length; i++) {
       if (slotText[i].isEmpty) continue;
-      if (p.start < slotEnd[i] && p.end > slotStart[i]) return i;
+      if (l.start < slotEnd[i] && l.end > slotStart[i]) return i;
     }
     return -1;
   }
@@ -470,41 +496,34 @@ Line _mergePair(String over, String under, int tonic) {
     return i;
   }
 
-  for (final p in pieces) {
-    if (p is GapPiece) {
-      final text = p.text.trim();
-      if (text.isEmpty || !seenChord) continue;
-      if (_glueRe.hasMatch(text)) {
-        if (lastChordSlot >= 0) {
-          slotExtras[lastChordSlot].add(InlineToken(text, glued: true));
-        }
-      } else {
-        lineEnd.add(InlineToken(text));
-      }
+  for (final l in lex) {
+    if (l is! ChordLex) {
+      gapStart ??= l.start;
+      gapEnd = l.end;
       continue;
     }
-
-    final chord = p as ChordPiece;
+    flushGap();
     seenChord = true;
-    final slot = chordSlot(chord);
+    final slot = chordSlot(l);
     if (slot == -1) {
-      if (chord.start >= lastWordEnd) {
-        lineEnd
-            .add(ChordToken(Chord.fromPitch(chord.chord, tonic), endOfLine: true));
+      if (l.start >= lastWordEnd) {
+        lineEnd.add(
+            ChordToken(Chord.fromPitch(l.chord, tonic), endOfLine: true));
         lastChordSlot = -1;
       } else {
-        final s = insertEmptySlot(chord.start);
-        slotChord[s] = Chord.fromPitch(chord.chord, tonic);
+        final s = insertEmptySlot(l.start);
+        slotChord[s] = Chord.fromPitch(l.chord, tonic);
         lastChordSlot = s;
       }
     } else if (slotChord[slot] == null) {
-      slotChord[slot] = Chord.fromPitch(chord.chord, tonic);
+      slotChord[slot] = Chord.fromPitch(l.chord, tonic);
       lastChordSlot = slot;
     } else {
-      slotExtras[slot].add(ChordToken(Chord.fromPitch(chord.chord, tonic)));
+      slotExtras[slot].add(ChordToken(Chord.fromPitch(l.chord, tonic)));
       lastChordSlot = slot;
     }
   }
+  flushGap();
 
   final tokens = <Token>[];
   for (var i = 0; i < slotText.length; i++) {
@@ -512,8 +531,8 @@ Line _mergePair(String over, String under, int tonic) {
     tokens.addAll(slotExtras[i]);
   }
   tokens.addAll(lineEnd);
-  if (underSplit != null) {
-    tokens.add(AnnotationToken(underSplit.annotation));
+  if (underSplit.annotation != null) {
+    tokens.add(AnnotationToken(underSplit.annotation!));
   }
   return Line(tokens);
 }
@@ -567,44 +586,108 @@ List<SyllableToken> wordSyllables(String text) => [
         SyllableToken(s.text, dash: s.dash),
     ];
 
-/// Кусок аккордной строки: аккорд или не-аккордный текст между ними.
-sealed class ChordLinePiece {
-  const ChordLinePiece(this.start, this.end);
+// ---------------------------------------------------------------------------
+// Лексер
+// ---------------------------------------------------------------------------
+
+/// Лексема строки: аккорд, слово или символьный набег. Решения о типах
+/// строк и сборке токенов принимаются над лексемами, сам лексер
+/// классификацией не занимается.
+sealed class Lex {
+  const Lex(this.start, this.end);
 
   final int start;
   final int end;
 }
 
-class ChordPiece extends ChordLinePiece {
-  const ChordPiece(this.chord, super.start, super.end);
-
+/// Аккорд: [chord] — питчи, [rootName] — нормализованное латинское
+/// написание корня («С7» → «C7»).
+class ChordLex extends Lex {
   final PitchChord chord;
+  final String rootName;
+
+  const ChordLex(this.chord, this.rootName, super.start, super.end);
 }
 
-class GapPiece extends ChordLinePiece {
-  const GapPiece(this.text, super.start, super.end);
-
+class WordLex extends Lex {
   final String text;
+  const WordLex(this.text, super.start, super.end);
 }
 
-/// Сканирует строку аккордов без анкоров: каждый аккорд — [ChordPiece],
-/// текст между ними (включая пробелы) — [GapPiece]. Куски покрывают строку
-/// целиком, позиции считаются по нормализованной (латиница) строке.
-List<ChordLinePiece> scanChordLine(String line) {
-  final normalized = _normalizeLookalikes(line);
-  final pieces = <ChordLinePiece>[];
-  var cursor = 0;
-  for (final m in _chordRe.allMatches(normalized)) {
-    if (m.start > cursor) {
-      pieces.add(GapPiece(line.substring(cursor, m.start), cursor, m.start));
+class SymbolLex extends Lex {
+  final String text;
+  const SymbolLex(this.text, super.start, super.end);
+}
+
+/// Лексер: аккорд (с кириллическими двойниками корня/баса и стопорами —
+/// аккорд не слипается со словами, но может с символами вроде «~»/«|») |
+/// слово (буквы/цифры) | символьный набег. Пробелы — разделители,
+/// позиции лексем — исходные колонки строки.
+final RegExp _lexRe = RegExp(
+  '(?<![\\p{L}\\p{N}])'
+  '([A-GАВСЕ])([#b♯♭]?)'
+  '((?:maj|min|sus|dim|aug|add|alt|mM|m|M|°|º|ø|Δ|\\+|-|#|b|\\d|\\(|\\))*)'
+  '(?:/([A-GАВСЕ])([#b♯♭]?))?'
+  '(?![\\p{L}\\p{N}])'
+  '|([\\p{L}\\p{N}]+)'
+  '|([^\\s\\p{L}\\p{N}]+)',
+  unicode: true,
+);
+
+List<Lex> lexLine(String line) {
+  final lex = <Lex>[];
+  for (final m in _lexRe.allMatches(line)) {
+    if (m[1] != null) {
+      lex.add(ChordLex(_chordFromMatch(m), _rootName(m), m.start, m.end));
+    } else if (m[6] != null) {
+      lex.add(WordLex(m[6]!, m.start, m.end));
+    } else {
+      lex.add(SymbolLex(m[7]!, m.start, m.end));
     }
-    pieces.add(ChordPiece(_chordFromMatch(m), m.start, m.end));
-    cursor = m.end;
   }
-  if (cursor < line.length) {
-    pieces.add(GapPiece(line.substring(cursor), cursor, line.length));
+  return lex;
+}
+
+/// Группирует лексемы в «слова» — куски без пробелов (как \\S+):
+/// примыкающие без пробела лексемы склеиваются в один кусок.
+List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
+  final runs = <({String text, int start})>[];
+  var buf = StringBuffer();
+  int? start;
+  var prevEnd = -1;
+  for (final l in lex) {
+    if (start != null && l.start > prevEnd) {
+      runs.add((text: buf.toString(), start: start));
+      buf = StringBuffer();
+      start = null;
+    }
+    start ??= l.start;
+    buf.write(line.substring(l.start, l.end));
+    prevEnd = l.end;
   }
-  return pieces;
+  if (start != null) runs.add((text: buf.toString(), start: start));
+  return runs;
+}
+
+/// Делит текстовую строку на голову и хвост-аннотацию: хвост начинается с
+/// первого куска без пробелов, начинающегося с символа (не тире), после
+/// непустой головы. Кусок «слово + прилепленная пунктуация» — часть головы.
+({List<Lex> head, String? annotation}) _lyricSplit(String line) {
+  final lex = lexLine(line);
+  var headRuns = 0;
+  var prevEnd = -1;
+  for (final l in lex) {
+    final startsRun = l.start > prevEnd;
+    prevEnd = l.end;
+    if (!startsRun) continue;
+    final dashOnly = l is SymbolLex && _dashTokenRe.hasMatch(l.text);
+    final wordStart = l is WordLex || l is ChordLex;
+    if (!wordStart && !dashOnly && headRuns > 0) {
+      return (head: lex.sublist(0, lex.indexOf(l)), annotation: line.substring(l.start));
+    }
+    headRuns++;
+  }
+  return (head: lex, annotation: null);
 }
 
 // ---------------------------------------------------------------------------
@@ -764,46 +847,38 @@ String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
 }
 
 // ---------------------------------------------------------------------------
-// Общие распознаватели (используются и строчной заменой аккордов)
+// Распознаватели
 // ---------------------------------------------------------------------------
-
-/// Полный аккорд: тоника + качество (+ слэш-бас). Без анкоров — чтобы
-/// [scanChordLine] находил аккорды и внутри слипшихся кусков («G#7~A7»);
-/// [parseChord] сам проверяет совпадение по всей длине токена.
-final RegExp _chordRe = RegExp(
-  r'([A-G])([#b♯♭]?)'
-  r'((?:maj|min|sus|dim|aug|add|alt|mM|m|M|°|º|ø|Δ|\+|-|#|b|\d|\(|\))*)'
-  r'(?:/([A-G])([#b♯♭]?))?',
-);
 
 /// Кириллические буквы-двойники латинских — в аккордах из-за не
 /// переключённой раскладки («С7» вместо «C7»). Индексы строк синхронны.
 const String _lookalikeCyrillic = 'АВЕКМНОРСТУХ';
 const String _lookalikeLatin = 'ABEKMHOPCTYX';
 
-final RegExp _lookalikeRe = RegExp('[АВЕКМНОРСТУХ]');
-
-String _normalizeLookalikes(String token) {
-  if (!_lookalikeRe.hasMatch(token)) return token;
-  return String.fromCharCodes(token.runes.map((r) {
-    final i = _lookalikeCyrillic.indexOf(String.fromCharCode(r));
-    return i == -1 ? r : _lookalikeLatin.codeUnitAt(i);
-  }));
+String _normalizeRootLetter(String letter) {
+  final i = _lookalikeCyrillic.indexOf(letter);
+  return i == -1 ? letter : _lookalikeLatin[i];
 }
 
-/// Разбирает токен как аккорд; null — если это не аккорд. Кириллические
-/// двойники нормализуются в латиницу. Токен должен совпасть целиком.
+String _rootName(Match m) =>
+    _normalizeRootLetter(m[1]!) + (m[2] ?? '');
+
+/// Разбирает кусок как аккорд целиком; null — если это не аккорд.
+/// Кириллические двойники корня/баса нормализуются в латиницу.
 PitchChord? parseChord(String token) {
-  final normalized = _normalizeLookalikes(token);
-  final m = _chordRe.firstMatch(normalized);
-  if (m == null || m.start != 0 || m.end != normalized.length) return null;
+  final m = _lexRe.firstMatch(token);
+  if (m == null || m[1] == null || m.start != 0 || m.end != token.length) {
+    return null;
+  }
   return _chordFromMatch(m);
 }
 
 PitchChord _chordFromMatch(Match m) => PitchChord(
-      root: _pitchOf(m[1]! + (m[2] ?? '')),
+      root: _pitchOf(_normalizeRootLetter(m[1]!) + (m[2] ?? '')),
       quality: m[3] ?? '',
-      bass: m[4] == null ? null : _pitchOf(m[4]! + (m[5] ?? '')),
+      bass: m[4] == null
+          ? null
+          : _pitchOf(_normalizeRootLetter(m[4]!) + (m[5] ?? '')),
     );
 
 final RegExp _tabLineStart = RegExp(r'^(e|B|G|D|A|E)\s*\|');
@@ -813,50 +888,36 @@ bool isTabLineText(String line) {
   return _tabLineStart.hasMatch(t) || t.startsWith('----');
 }
 
-final RegExp _symbolStart = RegExp(r'^[^\p{L}\p{N}]', unicode: true);
-
 /// Одиночные дефисы и тире — пунктуация текста (разделитель частей
 /// фразы), а не маркер хвоста-аннотации.
 final RegExp _dashTokenRe = RegExp(r'^[-‒–—―−]+$');
 
-bool _isWordTokenText(String token) => !_symbolStart.hasMatch(token);
-
-bool _isChordTokenText(String token) => parseChord(token) != null;
-
-/// Делит строку на ведущую часть и хвост-аннотацию: хвост начинается с
-/// первого токена, стартующего с «символа» (не буква и не цифра: «//», «(»,
-/// «*»…); одиночные тире текстом остаются. Ведущая часть должна быть
-/// непустой и целиком подходить под [isLeading]. null — эвристика не
-/// сработала.
-({String head, String annotation})? _splitAnnotation(
-    String line, bool Function(String token) isLeading) {
-  final tokens = RegExp(r'\S+').allMatches(line).toList();
-  if (tokens.isEmpty) return null;
-  var i = 0;
-  while (i < tokens.length &&
-      (isLeading(tokens[i][0]!) || _dashTokenRe.hasMatch(tokens[i][0]!))) {
-    i++;
-  }
-  if (i == 0 || i == tokens.length) return null;
-  if (!_symbolStart.hasMatch(tokens[i][0]!)) return null;
-  return (
-    head: line.substring(0, tokens[i].start),
-    annotation: line.substring(tokens[i].start),
-  );
-}
-
-/// Строка считается строкой аккордов, когда аккорды покрывают больше половины
-/// не-пробельных символов (заголовки вида «[Куплет 1]» не считаются) — иначе
-/// текст песни с редкими «Am»/«A» не отличить. Строка с аккордами и
-/// хвостом-аннотацией («G C // комментарий») аккордная без всякого
-/// большинства.
+/// Строка аккордная, когда:
+/// (а) есть голова из аккордов (плюс тире) и символьный хвост
+///     («G C // комментарий») — без всякого большинства;
+/// (б) аккорды покрывают больше половины не-пробельных колонок
+///     (лексемы внутри «[…]» из голосования исключены) — иначе текст
+///     песни с редкими «Am»/«A» не отличить.
 bool isChordLineText(String line) {
-  if (_splitAnnotation(line, _isChordTokenText) != null) return true;
+  final lex = lexLine(line);
+  var seenChord = false;
+  for (final l in lex) {
+    if (l is ChordLex) {
+      seenChord = true;
+    } else if (l is WordLex) {
+      break;
+    } else if (!_dashTokenRe.hasMatch((l as SymbolLex).text)) {
+      return seenChord; // символьный хвост: аккордная, если была голова
+    }
+  }
+
   final body = line.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
   var chordChars = 0;
-  for (final p in scanChordLine(body)) {
-    if (p is ChordPiece) chordChars += p.end - p.start;
+  var nonWs = 0;
+  for (final l in lexLine(body)) {
+    final len = l.end - l.start;
+    nonWs += len;
+    if (l is ChordLex) chordChars += len;
   }
-  final nonWs = body.replaceAll(RegExp(r'\s'), '').length;
   return nonWs > 0 && chordChars * 2 > nonWs;
 }

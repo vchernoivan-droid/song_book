@@ -2,6 +2,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:song_book/services/example_song.dart';
 import 'package:song_book/services/song_parser.dart';
 
+/// Профиль лексем строки: «chord:Корень | word:текст | sym:символы».
+List<String> lexKinds(String line) => [
+      for (final l in lexLine(line))
+        switch (l) {
+          ChordLex(:final rootName) => 'chord:$rootName',
+          WordLex(:final text) => 'word:$text',
+          SymbolLex(:final text) => 'sym:$text',
+        }
+    ];
+
+/// Все имена аккордов модели по порядку, в тональности самой песни.
+List<String> chordNames(ParsedSong song) => [
+      for (final s in song.sections)
+        for (final l in s.lines)
+          for (final t in l.tokens)
+            if (t is SyllableToken && t.chord != null)
+              t.chord!.display(song.tonic, song.tonicName)
+            else if (t is ChordToken)
+              t.chord.display(song.tonic, song.tonicName),
+    ];
+
 Chord _chordOf(String display, int tonic) {
   final c = parseChord(display);
   if (c == null) throw ArgumentError('не аккорд: $display');
@@ -32,6 +53,149 @@ List<SyllableToken> word(String text, [String? chordDisplay, int tonic = 0]) {
 }
 
 void main() {
+  group('лексер', () {
+    test('метка + пайпы + аккорды', () {
+      expect(lexKinds('Вступление: Dm |   Dm   |   G   |   C   C7'), [
+        'word:Вступление', 'sym::',
+        'chord:D', 'sym:|', 'chord:D', 'sym:|',
+        'chord:G', 'sym:|', 'chord:C', 'chord:C',
+      ]);
+    });
+
+    test('слипшиеся переходы режутся, символы — аккордам не слова', () {
+      expect(lexKinds('G#7~A7'), ['chord:G#', 'sym:~', 'chord:A']);
+      expect(lexKinds('Em75-'), ['chord:E']);
+    });
+
+    test('фиктивные аккорды из слов не выдёргиваются', () {
+      expect(lexKinds('Вступление'), ['word:Вступление']);
+      expect(lexKinds('Facade'), ['word:Facade']);
+      expect(lexKinds('Am I wrong'), ['chord:A', 'word:I', 'word:wrong']);
+    });
+
+    test('кириллические двойники — аккорды с нормализованным корнем', () {
+      expect(lexKinds('С7 Am'), ['chord:C', 'chord:A']);
+    });
+
+    test('пунктуация прилеплена к словам отдельной лексемой', () {
+      expect(lexKinds('рит, о-сень'),
+          ['word:рит', 'sym:,', 'word:о', 'sym:-', 'word:сень']);
+    });
+
+    test('позиции лексем — исходные колонки', () {
+      final lex = lexLine('  Am | C');
+      expect(lex.map((l) => l.start).toList(), [2, 5, 7]);
+      expect(lex.map((l) => l.end).toList(), [4, 6, 8]);
+    });
+
+    test('метка + пайпы пока остаётся текстовой строкой (до тюнинга правил)', () {
+      expect(
+          isChordLineText('Вступление: Dm |   Dm   |   G   |   C   C7'),
+          isFalse);
+      expect(isChordLineText('G C // комментарий'), isTrue);
+      expect(isChordLineText('Am I wrong'), isFalse);
+    });
+  });
+
+  group('смена тоники (transposed)', () {
+    test('0 полутонов — та же модель', () {
+      final song = parseSong('Am F\nтекст\n');
+      expect(song.transposed(0), same(song));
+    });
+
+    test('+12 полутонов — те же имена', () {
+      expect(chordNames(parseSong('Am F\n').transposed(12)), ['Am', 'F']);
+    });
+
+    test('аккорды слогов, доп. смены и хвосты строки', () {
+      final t =
+          parseSong('Am  Dm         E7  A7\nслова строки\n').transposed(1);
+      expect(chordNames(t), ['Bbm', 'Ebm', 'F7', 'Bb7']);
+    });
+
+    test('прогрессия рендерится с новыми именами', () {
+      expect(renderSong(parseSong('Am   F   C   G\n').transposed(2)),
+          'Bm   G   D   A\n');
+    });
+
+    test('качества аккордов сохраняются', () {
+      final t = parseSong('Am7 F#m7 Cmaj7 Dsus4 Bdim\n').transposed(1);
+      expect(chordNames(t), ['Bbm7', 'Gm7', 'C#maj7', 'Ebsus4', 'Cdim']);
+    });
+
+    test('слэш-аккорды транспонируют бас', () {
+      final t = parseSong('C/G  G/B\n').transposed(2);
+      expect(chordNames(t), ['D/A', 'A/C#']);
+    });
+
+    test('энгармоника: C#, F# — диезы; Eb, Ab, Bb — бемоли', () {
+      final t = parseSong('C  F  G  D  A  Bb  A#\n').transposed(1);
+      expect(chordNames(t), ['C#', 'F#', 'Ab', 'Eb', 'Bb', 'B', 'B']);
+    });
+
+    test('отрицательное смещение через ноль', () {
+      expect(chordNames(parseSong('C\nF#\n').transposed(-1)), ['B', 'F']);
+    });
+
+    test('тоника рендерится написанным именем', () {
+      expect(renderSong(parseSong('G#7~A7\n')), 'G#7~A7\n');
+      expect(renderSong(parseSong('G#7~A7\n').transposed(1)), 'A7~Bb7\n');
+    });
+
+    test('текст песни не трогаем', () {
+      final song = parseSong('On a dark desert highway\nAm I wrong\n');
+      final t = song.transposed(3);
+      expect(chordNames(t), isEmpty);
+      expect(renderSong(t), renderSong(song));
+    });
+
+    test('табулатуры не трогаем', () {
+      const tab = 'e|-------0---------------|';
+      expect(renderSong(parseSong(tab).transposed(5)), '$tab\n');
+    });
+
+    test('аккорд внутри inline-комментария транспонируется', () {
+      const content =
+          'G        C           // you can do C7 here\nГоворит, послухайте\n';
+      final t = parseSong(content).transposed(2);
+      expect(chordNames(t), contains('D7'));
+      expect(renderSong(t), contains('// you can do D7  here'));
+    });
+
+    test('аннотация строки текста не трогается', () {
+      final line = parseSong('Припев (2 раза)\n')
+          .transposed(5)
+          .sections
+          .single
+          .lines
+          .single;
+      expect(line.tokens.whereType<AnnotationToken>().single,
+          const AnnotationToken('(2 раза)'));
+    });
+
+    test('кириллический двойник транспонируется как обычный аккорд', () {
+      expect(chordNames(parseSong('С7 Am\n').transposed(2)), ['D7', 'Bm']);
+    });
+
+    test('полный пример: аккорды меняются, текст и табы нет', () {
+      const content = '''
+[Вступление]
+Am   F   C   G
+
+[Куплет 1]
+On a dark desert highway
+
+[Табы]
+e|-------0---------------|
+''';
+      final result = renderSong(parseSong(content).transposed(1));
+      expect(result, contains('[Вступление]'));
+      expect(result, contains('Bbm'));
+      expect(result, contains('On a dark desert highway'));
+      expect(result, contains('e|-------0---------------|'));
+    });
+  });
+
   group('round-trip', () {
     test('канонический рендер стабилен: повторный проход ничего не меняет', () {
       final canonical = renderSong(parseSong(kExampleSongContent));
