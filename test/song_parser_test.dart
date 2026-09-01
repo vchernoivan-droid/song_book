@@ -32,8 +32,9 @@ Chord _chordOf(String display) {
 
 void main() {
   group('round-trip', () {
-    test('пример песни — байт-в-байт', () {
-      expect(renderSong(parseSong(kExampleSongContent)), kExampleSongContent);
+    test('канонический рендер стабилен: повторный проход ничего не меняет', () {
+      final canonical = renderSong(parseSong(kExampleSongContent));
+      expect(renderSong(parseSong(canonical)), canonical);
     });
 
     test('несколько пустых строк между секциями нормализуются в одну', () {
@@ -54,7 +55,6 @@ void main() {
       final s = parseSong('[Что-то непонятное]\nтекст\n').sections.single;
       expect(s.title, 'Что-то непонятное');
       expect(s.kind, SectionKind.unknown);
-      expect(s.titleSource, '[Что-то непонятное]');
     });
 
     test('ключевые слова дают kind: куплет/припев/соло', () {
@@ -206,12 +206,6 @@ void main() {
       ]);
     });
 
-    test('round-trip висячих аккордов идентичен', () {
-      const content = '    A7       G#7~ A7           G#7 A7  Am\n'
-          'Где чинара        притулилась      под скалою,\n';
-      expect(renderSong(parseSong(content)), content);
-    });
-
     test('аккорды без текста — прогрессия', () {
       final s = parseSong('Am   F   C   G\n');
       final line = s.sections.single.lines.single;
@@ -220,12 +214,11 @@ void main() {
           ['Am', 'F', 'C', 'G']);
     });
 
-    test('табулатуры — RawToken с исходником', () {
+    test('табулатуры — RawToken', () {
       const tab = 'e|-------0---------------|';
       final s = parseSong(tab);
       final line = s.sections.single.lines.single;
       expect(line.tokens.single, isA<RawToken>());
-      expect(line.source, tab);
     });
 
     test('хвостовая пометка в строке аккордов — InlineToken', () {
@@ -236,7 +229,7 @@ void main() {
     });
   });
 
-  group('рендер из токенов (без source)', () {
+  group('рендер из токенов', () {
     test('аккорды встают над началами слов', () {
       final song = ParsedSong([
         Section(lines: [
@@ -262,36 +255,36 @@ void main() {
 
     test('дефисы исходника сохраняются при пересборке', () {
       // Am стоит над дефисом — под буквами «-би».
-      expect(renderSong(parseSong('  Am\nлю-би-ма-я\n'), fromSource: false),
+      expect(renderSong(parseSong('  Am\nлю-би-ма-я\n')),
           '   Am\nлю-би-ма-я\n');
     });
 
     test('аккорд прижат к слогу, дефисы исходника сохраняются', () {
       expect(
-          renderSong(parseSong('C      G#7\nПе-ре-хо-дит\n'), fromSource: false),
+          renderSong(parseSong('C      G#7\nПе-ре-хо-дит\n')),
           'C     G#7\nПе-ре-хо-дит\n');
     });
 
     group('растяжка слогов дефисами', () {
       test('одиночная смена внутри слова — без дефисов', () {
-        expect(renderSong(parseSong('       D7\nпод скалою\n'), fromSource: false),
+        expect(renderSong(parseSong('       D7\nпод скалою\n')),
             '       D7\nпод скалою\n');
       });
 
       test('смена на последнем слоге — без дефисов', () {
         expect(
-            renderSong(parseSong('F7   Bb\nвечная пчела\n'), fromSource: false),
+            renderSong(parseSong('F7   Bb\nвечная пчела\n')),
             'F7   Bb\nвечная  пчела\n');
       });
 
       test('несколько смен в слове прижаты к слогам, без дефисов', () {
-        expect(renderSong(parseSong('F7 G Bb\nвечная\n'), fromSource: false),
+        expect(renderSong(parseSong('F7 G Bb\nвечная\n')),
             'F7 G Bb\nвечная\n');
       });
 
       test('длинные имена растягивают слово дефисами', () {
         expect(
-            renderSong(parseSong('F#7 G# Bb\nвеч-на-я\n'), fromSource: false),
+            renderSong(parseSong('F#7 G# Bb\nвеч-на-я\n')),
             'F#7 G# Bb\nвеч-на-я\n');
       });
       test('растяжка не дублирует дефис исходника', () {
@@ -350,8 +343,7 @@ void main() {
 
     List<String> canonicalInKeys() => [
           for (var s = 0; s < 12; s++)
-            renderSong(parseSong(transposeSongContent(content, s)),
-                fromSource: false),
+            renderSong(transposeSong(parseSong(content), s)),
         ];
 
     test('строки слов не меняются', () {
@@ -373,12 +365,18 @@ void main() {
     });
 
     test('эффективная ширина одинакова для всех написаний', () {
-      final widths = [for (var s = 0; s < 12; s++) transposeSongContent('F\n', s)]
-          .map((line) => parseChord(line.trim()))
-          .whereType<Chord>()
-          .map(chordWidth)
-          .toSet();
-      expect(widths.single, 2);
+      final roots = [
+        for (var s = 0; s < 12; s++)
+          (transposeSong(parseSong('F\n'), s)
+                  .sections
+                  .single
+                  .lines
+                  .single
+                  .tokens
+                  .single as ChordToken)
+              .chord
+      ];
+      expect(roots.map(chordWidth).toSet().single, 2);
     });
   });
 
@@ -401,13 +399,8 @@ void main() {
 
     test('канонический рендер выводит латиницу', () {
       final song = parseSong('  G        C            С7\nГоворит, послухайте\n');
-      expect(renderSong(song, fromSource: false),
+      expect(renderSong(song),
           '  G        C        C7\nГоворит, послухайте\n');
-    });
-
-    test('исходник не трогаем — байт-в-байт', () {
-      const content = '  G        C            С7\nГоворит, послухайте\n';
-      expect(renderSong(parseSong(content)), content);
     });
   });
 
@@ -434,26 +427,22 @@ void main() {
 
     test('канонический рендер: каждый хвост в конце своей строки', () {
       expect(
-          renderSong(parseSong(both), fromSource: false),
+          renderSong(parseSong(both)),
           'G        C          // you can do C7 here\n'
           'Говорит, послухайте /\u0024%^&/ slower than  in the chorus\n');
     });
 
     test('аннотация аккордной строки стоит за концом слов, как аккорд конца', () {
       const input = 'G               C        //укоцдулкод\nДержит в правой ручке\n';
-      expect(renderSong(parseSong(input), fromSource: false),
+      expect(renderSong(parseSong(input)),
           'G               C     //укоцдулкод\nДержит в правой ручке\n');
-    });
-
-    test('исходник с хвостами — байт-в-байт', () {
-      expect(renderSong(parseSong(both)), both);
     });
 
     test('прогрессия с аннотацией', () {
       final s = parseSong('Am F // быстро\n').sections.single;
       expect(s.lines.single.tokens,
           [chord('Am'), chord('F'), const InlineToken('// быстро', endOfLine: true)]);
-      expect(renderSong(parseSong('Am F // быстро\n'), fromSource: false),
+      expect(renderSong(parseSong('Am F // быстро\n')),
           'Am   F // быстро\n');
     });
 
@@ -478,12 +467,12 @@ void main() {
         syl('пев', dash: SyllableDash.left),
         const AnnotationToken('(2 раза)'),
       ]);
-      expect(renderSong(parseSong('Припев (2 раза)\n'), fromSource: false),
+      expect(renderSong(parseSong('Припев (2 раза)\n')),
           'Припев (2 раза)\n');
     });
   });
 
-  group('канонический рендер (fromSource: false)', () {
+  group('канонический рендер', () {
     test('пример песни: аккорды над началами слов, разметка выравнена', () {
       final pad = ' ' * 16; // от Am до F — колонка начала последнего слова
       final padEnd = ' ' * 20; // от C до G — за концом последнего слова
@@ -515,24 +504,24 @@ void main() {
           '\n'
           'Подсказка: в режиме просмотра текст отображается моноширинным\n'
           'шрифтом, чтобы аккорды над словами и табулатуры не «плавали».\n';
-      expect(renderSong(parseSong(kExampleSongContent), fromSource: false),
+      expect(renderSong(parseSong(kExampleSongContent)),
           expected);
     });
 
     test('заголовок «Припев:» канонизируется в «[Припев]»', () {
       final song = parseSong('Припев:\n   C        G\nHotel California\n');
-      expect(renderSong(song, fromSource: false),
+      expect(renderSong(song),
           '[Припев]\nC     G\nHotel California\n');
     });
 
     test('прогрессии нормализуются к трём пробелам', () {
-      expect(renderSong(parseSong('Am        F\n'), fromSource: false),
+      expect(renderSong(parseSong('Am        F\n')),
           'Am   F\n');
     });
 
     test('аккорды конца строки — за последним словом', () {
       final song = parseSong('B7       Em         E7\nШо я вам скажу\n');
-      expect(renderSong(song, fromSource: false),
+      expect(renderSong(song),
           'B7        Em    E7\nШо  я вам скажу\n');
     });
 
@@ -544,8 +533,7 @@ void main() {
     });
 
     test('многословная строка — слова через один пробел', () {
-      expect(renderSong(parseSong('текст   с   двойными   пробелами\n'),
-          fromSource: false),
+      expect(renderSong(parseSong('текст   с   двойными   пробелами\n')),
           'текст с двойными пробелами\n');
     });
 
@@ -553,14 +541,14 @@ void main() {
       const chordLine = '    A7       G#7~ A7           G#7 A7  Am';
       const wordLine = 'Где чинара        притулилась      под скалою,';
       final s = parseSong('$chordLine\n$wordLine\n');
-      expect(renderSong(s, fromSource: false),
+      expect(renderSong(s),
           '    A7     G#7~ A7          G#7 A7  Am\n'
           'Где чинара      притулилась     под скалою,\n');
     });
 
     test('дефисное слово: дефисы сохраняются, аккорд над своим слогом', () {
       const input = 'C        F\nПе-ре-хо-дит о-сень в ле-то\n';
-      expect(renderSong(parseSong(input), fromSource: false), input);
+      expect(renderSong(parseSong(input)), input);
     });
   });
 
@@ -596,9 +584,8 @@ void main() {
     });
 
     test('канонический рендер сохраняет ~ между аккордами', () {
-      expect(renderSong(parseSong('G#7~A7\n'), fromSource: false), 'G#7~A7\n');
-      expect(renderSong(parseSong('Em75-   G#7~A7 G#7~A7 Dm\n'),
-          fromSource: false),
+      expect(renderSong(parseSong('G#7~A7\n')), 'G#7~A7\n');
+      expect(renderSong(parseSong('Em75-   G#7~A7 G#7~A7 Dm\n')),
           'Em75-   G#7~A7   G#7~A7   Dm\n');
     });
 
@@ -612,7 +599,7 @@ void main() {
     });
 
     test('аккорды над текстом: ~ рендерится вплотную', () {
-      expect(renderSong(parseSong('G#7~A7\nслово\n'), fromSource: false),
+      expect(renderSong(parseSong('G#7~A7\nслово\n')),
           'G#7~A7\nсло-во\n');
     });
   });

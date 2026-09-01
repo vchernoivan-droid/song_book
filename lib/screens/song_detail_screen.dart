@@ -27,7 +27,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   late int _semitones = _song.transpose;
   late int _fontSize = _song.fontSize;
   late int _scrollSpeed = _song.scrollSpeed;
-  bool _pretty = true;
   Future<void> _persistChain = Future.value();
 
   late final Ticker _ticker;
@@ -50,12 +49,13 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     super.dispose();
   }
 
-  /// Текст, который видит пользователь: исходный или канонический (из модели).
-  String get _displayedBody {
-    final transposed = transposeSongContent(_song.content, _semitones);
-    if (!_pretty) return transposed;
-    return renderSong(parseSong(transposed), fromSource: false);
-  }
+  /// Модель песни с применённым транспонированием — единственное
+  /// представление: и просмотр, и сохранение работают с ним.
+  ParsedSong get _transposedSong =>
+      transposeSong(parseSong(_song.content), _semitones);
+
+  /// Текст, который видит пользователь: канонический рендер модели.
+  String get _displayedBody => renderSong(_transposedSong);
 
   Future<void> _edit() async {
     // Редактор открываем ровно с тем текстом, что на экране: сохранится
@@ -105,7 +105,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             transpose: semitones,
             fontSize: fontSize,
             scrollSpeed: scrollSpeed,
-            body: _song.content,
+            body: renderSong(parseSong(_song.content)),
           ),
           oldFileName: _song.fileName,
         );
@@ -127,19 +127,15 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   double _scrollPxPerSecond() {
     final lineHeight = _fontSize * 1.35;
-    final transposed = transposeSongContent(_song.content, _semitones);
-    final parsed = parseSong(transposed);
-    final body = _pretty ? renderSong(parsed, fromSource: false) : transposed;
+    final parsed = _transposedSong;
+    final body = renderSong(parsed);
 
     final parts = body.split('\n');
     var physical = parts.length;
     if (parts.isNotEmpty && parts.last.isEmpty) physical--;
 
-    var tokenLines = physical;
-    if (_pretty) {
-      tokenLines =
-          parsed.sections.fold(0, (sum, s) => sum + s.lines.length);
-    }
+    final tokenLines =
+        parsed.sections.fold(0, (sum, s) => sum + s.lines.length);
     return autoScrollPxPerSecond(
       linesPerMinute: _scrollSpeed,
       tokenLines: tokenLines,
@@ -295,23 +291,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       appBar: AppBar(
         title: Text(_song.title, overflow: TextOverflow.ellipsis),
         actions: [
-          SegmentedButton<bool>(
-            showSelectedIcon: false,
-            style: const ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12)),
-              padding: WidgetStatePropertyAll(
-                EdgeInsets.symmetric(horizontal: 10),
-              ),
-            ),
-            segments: const [
-              ButtonSegment(value: false, label: Text('Исходник')),
-              ButtonSegment(value: true, label: Text('Красиво')),
-            ],
-            selected: {_pretty},
-            onSelectionChanged: (selection) =>
-                setState(() => _pretty = selection.first),
-          ),
           IconButton(
             tooltip: 'Уменьшить шрифт',
             visualDensity: VisualDensity.compact,

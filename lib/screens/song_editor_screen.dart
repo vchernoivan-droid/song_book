@@ -144,13 +144,14 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
 
     setState(() => _saving = true);
     try {
+      final body = renderSong(parseSong(_contentCtrl.text));
       final fileName = await _storage.writeSong(
         desiredTitle: title,
         content: Song.withHeaders(
           transpose: _transpose,
           fontSize: _fontSize,
           scrollSpeed: _scrollSpeed,
-          body: _contentCtrl.text,
+          body: body,
         ),
         oldFileName: widget.song?.fileName,
       );
@@ -160,7 +161,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         Song(
           fileName: fileName,
           title: title,
-          content: _contentCtrl.text,
+          content: body,
           transpose: _transpose,
           fontSize: _fontSize,
           scrollSpeed: _scrollSpeed,

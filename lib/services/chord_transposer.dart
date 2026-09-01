@@ -1,7 +1,9 @@
-/// Транспонирование и замена аккордов в тексте песни (надстрочный формат).
+/// Транспонирование модели песни и замена аккордов в тексте.
 ///
-/// Строки с текстом и табулатурами не меняются. Чтобы аккорды не «уезжали»
-/// со своих слов, изменение длины аккорда компенсируется пробелами после него.
+/// [transposeSong] работает с моделью ([ParsedSong]): аккорды живут
+/// в токенах, транспонирование — замена [Chord] на сдвинутый; строки без
+/// аккордов (текст, табулатуры) не меняются. [replaceChordContent] —
+/// строчная замена для редактора текста.
 library;
 
 import 'song_parser.dart';
@@ -15,13 +17,47 @@ const List<String> _pitchNames = [
   'C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
 ];
 
-/// Транспонирует текст песни на [semitones] полутонов.
-String transposeSongContent(String content, int semitones) {
-  if (semitones == 0) return content;
-  return content
-      .split('\n')
-      .map((line) => _transposeLine(line, semitones))
-      .join('\n');
+/// Транспонирует модель песни на [semitones] полутонов.
+ParsedSong transposeSong(ParsedSong song, int semitones) {
+  if (semitones == 0) return song;
+  return ParsedSong([
+    for (final s in song.sections)
+      Section(
+        title: s.title,
+        kind: s.kind,
+        lines: [
+          for (final l in s.lines)
+            Line([for (final t in l.tokens) _transposeToken(t, semitones)]),
+        ],
+      ),
+  ]);
+}
+
+Token _transposeToken(Token t, int semitones) => switch (t) {
+      SyllableToken(:final text, :final dash, :final chord) => SyllableToken(
+          text,
+          dash: dash,
+          chord: chord == null ? null : _transposeChord(chord, semitones),
+        ),
+      ChordToken(:final chord, :final endOfLine) =>
+        ChordToken(_transposeChord(chord, semitones), endOfLine: endOfLine),
+      InlineToken(:final text, :final endOfLine) =>
+        InlineToken(_transposeChordText(text, semitones), endOfLine: endOfLine),
+      AnnotationToken() || RawToken() => t,
+    };
+
+/// Аккорды внутри inline-текста («// можно C7») транспонируются вместе со
+/// всеми; текст без аккордов возвращается как есть.
+String _transposeChordText(String text, int semitones) {
+  final out = StringBuffer();
+  for (final p in scanChordLine(text)) {
+    if (p is ChordPiece) {
+      out.write(_transposeChord(p.chord, semitones).display);
+    } else {
+      out.write((p as GapPiece).text);
+    }
+  }
+  return out.toString();
 }
 
 /// Заменяет все вхождения аккорда [from] на [to] в аккордных строках.
@@ -42,14 +78,6 @@ String transposeSongContent(String content, int semitones) {
   }).join('\n');
   return (content: result, count: count);
 }
-
-String _transposeLine(String line, int semitones) {
-  if (isTabLineText(line) || !isChordLineText(line)) return line;
-  return _transposeChordLine(line, semitones);
-}
-
-String _transposeChordLine(String line, int semitones) =>
-    _transformChordLine(line, (c) => _transposeChord(c, semitones));
 
 /// Перебирает аккорды строки, применяет [transform] и пересобирает
 /// строку, компенсируя изменение длины имён пробелами: накопленная

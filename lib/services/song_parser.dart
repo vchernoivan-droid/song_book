@@ -14,8 +14,7 @@
 /// слоге — ChordToken сразу после него, аккорды за концом слов —
 /// ChordToken(endOfLine) в конце списка. Хвосты-аннотации («// можно C7»,
 /// «(2 раза)») — AnnotationToken с флагом строки-хозяина. Колонки и
-/// пробелы не хранятся: нетронутая строка помнит исходный текст
-/// ([Line.source]) и рендерится байт-в-байт; изменённая собирается заново:
+/// пробелы не хранятся: рендер всегда собирает строку заново:
 /// внутри слова аккорды прижаты к слогам по печатной ширине, и когда имя
 /// не влезает, стык растягивается дефисом; между словами за аккордами
 /// без #/b резервируется колонка под знак — чтобы вёрстка не переезжала
@@ -153,9 +152,8 @@ class InlineToken extends Token {
 /// конце списка с [ChordToken.endOfLine].
 class Line {
   final List<Token> tokens;
-  final String? source;
 
-  const Line(this.tokens, {this.source});
+  const Line(this.tokens);
 
   /// Строка без слов (интро, проигрыш без текста): аккорды, inline-куски
   /// и хвостовые аннотации.
@@ -167,15 +165,11 @@ class Section {
   /// Распознанный текст заголовка («Куплет 1»); null — блока без заголовка.
   final String? title;
 
-  /// Заголовок как в исходнике («[Куплет 1]», «Припев:»); null — нет.
-  final String? titleSource;
-
   final SectionKind kind;
   final List<Line> lines;
 
   const Section({
     this.title,
-    this.titleSource,
     this.kind = SectionKind.unknown,
     required this.lines,
   });
@@ -218,7 +212,6 @@ Section _parseSection(List<String> block) {
   final rest = header == null ? block : block.sublist(1);
   return Section(
     title: header?.title,
-    titleSource: header?.source,
     kind: header?.kind ?? SectionKind.unknown,
     lines: _parseLines(rest),
   );
@@ -226,7 +219,7 @@ Section _parseSection(List<String> block) {
 
 /// Распознаёт строку-заголовок: «[Куплет 1]» (всегда) или «Припев:»
 /// (только если внутри есть ключевое слово секции).
-({String title, String source, SectionKind kind})? _parseHeader(String line) {
+({String title, SectionKind kind})? _parseHeader(String line) {
   final bracket = RegExp(r'^\s*\[([^\]]+)\]\s*$').firstMatch(line);
   final colon =
       bracket == null ? RegExp(r'^\s*([^:]{1,60}):\s*$').firstMatch(line) : null;
@@ -236,7 +229,7 @@ Section _parseSection(List<String> block) {
 
   final kind = _kindOf(title);
   if (bracket == null && kind == SectionKind.unknown) return null;
-  return (title: title.trim(), source: line, kind: kind);
+  return (title: title.trim(), kind: kind);
 }
 
 const Map<SectionKind, List<String>> _kindKeywords = {
@@ -263,7 +256,7 @@ List<Line> _parseLines(List<String> lines) {
     final nextIsLyric =
         i + 1 < lines.length && _isLyricLine(lines[i + 1]);
     if (isTabLineText(line)) {
-      result.add(Line([RawToken(line)], source: line));
+      result.add(Line([RawToken(line)]));
     } else if (isChordLineText(line) && nextIsLyric) {
       result.add(_mergePair(line, lines[i + 1]));
       i++;
@@ -288,7 +281,7 @@ Line _lyricLine(String line) {
   if (split != null) {
     tokens.add(AnnotationToken(split.annotation));
   }
-  return Line(tokens, source: line);
+  return Line(tokens);
 }
 
 Line _progressionLine(String line) {
@@ -310,7 +303,7 @@ Line _progressionLine(String line) {
   if (split != null) {
     tokens.add(InlineToken(split.annotation, endOfLine: true));
   }
-  return Line(tokens, source: line);
+  return Line(tokens);
 }
 
 /// Склеивает пару физических строк в одну [Line].
@@ -421,7 +414,7 @@ Line _mergePair(String over, String under) {
   if (underSplit != null) {
     tokens.add(AnnotationToken(underSplit.annotation));
   }
-  return Line(tokens, source: '$over\n$under');
+  return Line(tokens);
 }
 
 /// Слоги слова, начинающегося в колонке [base]: части, разделённые
@@ -518,31 +511,22 @@ List<ChordLinePiece> scanChordLine(String line) {
 // ---------------------------------------------------------------------------
 
 /// Собирает текст песни: секции через одну пустую строку, файл завершается
-/// переводом строки.
-///
-/// [fromSource] — использовать исходные строки как есть (байт-в-байт для
-/// нетронутого); при `false` всё пересобирается из токенов по правилам
-/// макета — «канонический» вид.
-String renderSong(ParsedSong song, {bool fromSource = true}) {
-  final parts = song.sections
-      .map((s) => _renderSection(s, fromSource))
-      .where((s) => s.isNotEmpty);
+/// переводом строки. Строки собираются из токенов по правилам макета —
+/// «канонический» вид.
+String renderSong(ParsedSong song) {
+  final parts = song.sections.map(_renderSection).where((s) => s.isNotEmpty);
   if (parts.isEmpty) return '';
   return '${parts.join('\n\n')}\n';
 }
 
-String _renderSection(Section section, bool fromSource) {
-  final header = fromSource
-      ? (section.titleSource ??
-          (section.title == null ? null : '[${section.title}]'))
-      : (section.title == null ? null : '[${section.title}]');
+String _renderSection(Section section) {
+  final header = section.title == null ? null : '[${section.title}]';
   final out = <String?>[header];
-  out.addAll(section.lines.map((l) => _renderLine(l, fromSource)));
+  out.addAll(section.lines.map(_renderLine));
   return out.whereType<String>().join('\n');
 }
 
-String _renderLine(Line line, bool fromSource) {
-  if (fromSource && line.source != null) return line.source!;
+String _renderLine(Line line) {
   if (line.tokens.length == 1 && line.tokens.single is RawToken) {
     return (line.tokens.single as RawToken).text;
   }
