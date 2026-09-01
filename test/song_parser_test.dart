@@ -82,6 +82,21 @@ void main() {
           ['word:рит', 'sym:,', 'word:о', 'sym:-', 'word:сень']);
     });
 
+    test('H = B: немецкая нотация, включая кириллического двойника Н', () {
+      expect(lexKinds('H7 E7'), ['chord:H', 'chord:E']);
+      expect(lexKinds('Н7'), ['chord:H']);
+      expect(parseChord('Hm')!.root, 11);
+    });
+
+    test('H-нотация: строка аккордная, тоника сохраняет имя, транспонируется', () {
+      const line = '            H7                E7';
+      expect(isChordLineText(line), isTrue);
+      expect(renderSong(parseSong('$line\n')), 'H7   E7\n');
+      final t = parseSong('$line\n').transposed(1);
+      expect(chordNames(t), ['C7', 'F7']);
+      expect(renderSong(t), 'C7   F7\n');
+    });
+
     test('позиции лексем — исходные колонки', () {
       final lex = lexLine('  Am | C');
       expect(lex.map((l) => l.start).toList(), [2, 5, 7]);

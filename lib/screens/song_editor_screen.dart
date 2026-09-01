@@ -167,7 +167,11 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
                   maxLines: null,
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
-                  style: const TextStyle(fontFamily: 'Roboto Mono', fontSize: 14),
+                  style: TextStyle(
+                    fontFamily: 'Roboto Mono',
+                    fontSize: _fontSize.toDouble(),
+                    height: 1.35,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Текст песни / аккорды / табы',
                     alignLabelWithHint: true,
