@@ -10,6 +10,8 @@ class Song {
   final String content;
 
   /// Сохранённое транспонирование в полутонах (−11…+11).
+  /// Шапка больше не пишется (состояние живёт в тональности файла),
+  /// читаем только старые файлы.
   final int transpose;
 
   /// Сохранённый размер шрифта просмотра (10…28).
@@ -121,24 +123,18 @@ class Song {
 
   /// Сырой текст для записи в хранилище — с шапками настроек.
   String get rawContent => withHeaders(
-        transpose: transpose,
         fontSize: fontSize,
         scrollSpeed: scrollSpeed,
         body: content,
       );
 
-  /// Склейка шапок «# transpose: …», «# font: …» и «# scroll: …» с телом.
+  /// Склейка шапок «# font: …» и «# scroll: …» с телом.
   static String withHeaders({
-    required int transpose,
     required int fontSize,
     required int scrollSpeed,
     required String body,
   }) {
     final header = <String>[];
-    if (transpose != 0) {
-      final sign = transpose > 0 ? '+' : '';
-      header.add('# transpose: $sign$transpose');
-    }
     if (fontSize != 15) {
       header.add('# font: $fontSize');
     }

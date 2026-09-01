@@ -67,14 +67,14 @@ void main() {
       expect(song.content, 'Am F\n# transpose: +4');
     });
 
-    test('rawContent добавляет шапку при ненулевом транспонировании', () {
+    test('шапку транспонирования не пишем — состояние в тональности тела', () {
       const song = Song(
         fileName: 'A.txt',
         title: 'A',
         content: 'Am F',
         transpose: 4,
       );
-      expect(song.rawContent, '# transpose: +4\nAm F');
+      expect(song.rawContent, 'Am F');
     });
 
     test('rawContent при нуле — без шапки', () {
@@ -171,13 +171,11 @@ void main() {
 
     test('withHeaders склеивает все шапки', () {
       expect(
-        Song.withHeaders(
-            transpose: -3, fontSize: 18, scrollSpeed: 22, body: 'Am'),
-        '# transpose: -3\n# font: 18\n# scroll: 22\nAm',
+        Song.withHeaders(fontSize: 18, scrollSpeed: 22, body: 'Am'),
+        '# font: 18\n# scroll: 22\nAm',
       );
       expect(
-        Song.withHeaders(
-            transpose: 0, fontSize: 15, scrollSpeed: 15, body: 'Am'),
+        Song.withHeaders(fontSize: 15, scrollSpeed: 15, body: 'Am'),
         'Am',
       );
     });

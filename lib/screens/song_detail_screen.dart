@@ -3,7 +3,6 @@ import 'package:flutter/scheduler.dart';
 
 import '../models/song.dart';
 import '../services/auto_scroll.dart';
-import '../services/chord_transposer.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 import 'song_editor_screen.dart';
@@ -52,7 +51,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   /// Модель песни с применённым транспонированием — единственное
   /// представление: и просмотр, и сохранение работают с ним.
   ParsedSong get _transposedSong =>
-      transposeSong(parseSong(_song.content), _semitones);
+      parseSong(_song.content).transposed(_semitones);
 
   /// Текст, который видит пользователь: канонический рендер модели.
   String get _displayedBody => renderSong(_transposedSong);
@@ -102,16 +101,15 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         final name = await _storage.writeSong(
           desiredTitle: _song.title,
           content: Song.withHeaders(
-            transpose: semitones,
             fontSize: fontSize,
             scrollSpeed: scrollSpeed,
-            body: renderSong(parseSong(_song.content)),
+            body: renderSong(parseSong(_song.content).transposed(semitones)),
           ),
           oldFileName: _song.fileName,
         );
         _song = _song.copyWith(
           fileName: name,
-          transpose: semitones,
+          transpose: 0,
           fontSize: fontSize,
           scrollSpeed: scrollSpeed,
         );

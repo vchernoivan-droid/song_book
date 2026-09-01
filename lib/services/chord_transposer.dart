@@ -1,69 +1,15 @@
-/// Транспонирование модели песни и замена аккордов в тексте.
+/// Строчная замена аккордов в тексте песни — операция редактора.
 ///
-/// [transposeSong] работает с моделью ([ParsedSong]): аккорды живут
-/// в токенах, транспонирование — замена [Chord] на сдвинутый; строки без
-/// аккордов (текст, табулатуры) не меняются. [replaceChordContent] —
-/// строчная замена для редактора текста.
+/// Транспонирование модели — смена тоники ([ParsedSong.transposed]),
+/// здесь остаётся только замена имён в сыром тексте.
 library;
 
 import 'song_parser.dart';
 
-const Map<String, int> _letterPitch = {
-  'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11,
-};
-
-/// Предпочитаемые написания полутонов: диезы для C#, F#, бемоли для Eb, Ab, Bb.
-const List<String> _pitchNames = [
-  'C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
-];
-
-/// Транспонирует модель песни на [semitones] полутонов.
-ParsedSong transposeSong(ParsedSong song, int semitones) {
-  if (semitones == 0) return song;
-  return ParsedSong([
-    for (final s in song.sections)
-      Section(
-        title: s.title,
-        kind: s.kind,
-        lines: [
-          for (final l in s.lines)
-            Line([for (final t in l.tokens) _transposeToken(t, semitones)]),
-        ],
-      ),
-  ]);
-}
-
-Token _transposeToken(Token t, int semitones) => switch (t) {
-      SyllableToken(:final text, :final dash, :final chord) => SyllableToken(
-          text,
-          dash: dash,
-          chord: chord == null ? null : _transposeChord(chord, semitones),
-        ),
-      ChordToken(:final chord, :final endOfLine) =>
-        ChordToken(_transposeChord(chord, semitones), endOfLine: endOfLine),
-      InlineToken(:final text, :final endOfLine) =>
-        InlineToken(_transposeChordText(text, semitones), endOfLine: endOfLine),
-      AnnotationToken() || RawToken() => t,
-    };
-
-/// Аккорды внутри inline-текста («// можно C7») транспонируются вместе со
-/// всеми; текст без аккордов возвращается как есть.
-String _transposeChordText(String text, int semitones) {
-  final out = StringBuffer();
-  for (final p in scanChordLine(text)) {
-    if (p is ChordPiece) {
-      out.write(_transposeChord(p.chord, semitones).display);
-    } else {
-      out.write((p as GapPiece).text);
-    }
-  }
-  return out.toString();
-}
-
 /// Заменяет все вхождения аккорда [from] на [to] в аккордных строках.
 /// Возвращает новый текст и число замен.
 ({String content, int count}) replaceChordContent(
-    String content, Chord from, Chord to) {
+    String content, PitchChord from, PitchChord to) {
   if (from == to) return (content: content, count: 0);
   var count = 0;
   final result = content.split('\n').map((line) {
@@ -85,7 +31,7 @@ String _transposeChordText(String text, int semitones) {
 /// inline-кусками вроде «~ », — чтобы аккорды не уезжали со своих
 /// колонок. Остаток, который погасить негде (склеенные аккорды, конец
 /// строки), просто сдвигает всё дальнейшее.
-String _transformChordLine(String line, Chord Function(Chord) transform) {
+String _transformChordLine(String line, PitchChord Function(PitchChord) transform) {
   final pieces = scanChordLine(line);
   final out = StringBuffer();
   var pending = 0;
@@ -124,20 +70,4 @@ String _absorbDelta(String gap, int delta, bool hasNextToken) {
   }
   if (delta < 0 && hasNextToken) return ' ' * -delta + gap;
   return gap;
-}
-
-Chord _transposeChord(Chord chord, int semitones) => Chord(
-      root: _shiftPitch(chord.root, semitones),
-      quality: chord.quality,
-      bass: chord.bass == null ? null : _shiftPitch(chord.bass!, semitones),
-    );
-
-String _shiftPitch(String root, int semitones) {
-  final letter = root.substring(0, 1);
-  final accidental = root.length > 1 ? root.substring(1) : '';
-  var pitch = _letterPitch[letter]!;
-  if (accidental == '#' || accidental == '♯') pitch += 1;
-  if (accidental == 'b' || accidental == '♭') pitch -= 1;
-  pitch = ((pitch + semitones) % 12 + 12) % 12;
-  return _pitchNames[pitch];
 }
