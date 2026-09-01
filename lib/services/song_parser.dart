@@ -881,6 +881,23 @@ PitchChord _chordFromMatch(Match m) => PitchChord(
           : _pitchOf(_normalizeRootLetter(m[4]!) + (m[5] ?? '')),
     );
 
+/// Ловушка: одиночная буква-корень или Am в начале строки / после точки,
+/// после которого есть слово из двух и более букв.
+bool _isWordTrap(ChordLex c, String line, List<Lex> lex) {
+  final single = c.rootName.length == 1 && c.chord.quality.isEmpty;
+  final isAm =
+      c.rootName == 'A' && c.chord.quality == 'm' && c.chord.bass == null;
+  if (!single && !isAm) return false;
+
+  final before = line.substring(0, c.start).replaceAll(RegExp(r'\s'), '');
+  if (before.isNotEmpty && !before.endsWith('.')) return false;
+
+  return lex
+      .where((l) => l.start >= c.end)
+      .whereType<WordLex>()
+      .any((w) => RegExp(r'\p{L}{2}', unicode: true).hasMatch(w.text));
+}
+
 final RegExp _tabLineStart = RegExp(r'^(e|B|G|D|A|E)\s*\|');
 
 bool isTabLineText(String line) {
@@ -892,32 +909,20 @@ bool isTabLineText(String line) {
 /// фразы), а не маркер хвоста-аннотации.
 final RegExp _dashTokenRe = RegExp(r'^[-‒–—―−]+$');
 
-/// Строка аккордная, когда:
-/// (а) есть голова из аккордов (плюс тире) и символьный хвост
-///     («G C // комментарий») — без всякого большинства;
-/// (б) аккорды покрывают больше половины не-пробельных колонок
-///     (лексемы внутри «[…]» из голосования исключены) — иначе текст
-///     песни с редкими «Am»/«A» не отличить.
+/// Строка аккордная, если в ней есть аккорды. Исключение — «ловушка»:
+/// единственный аккорд-похожий-на-слово в словесной позиции, после
+/// которого есть настоящее слово («В лесу…», «Am I wrong»), — это слово
+/// (союзы и предлоги с заглавной «А»/«В»/«С», английское «A»/«Am»),
+/// строка текстовая.
 bool isChordLineText(String line) {
   final lex = lexLine(line);
-  var seenChord = false;
-  for (final l in lex) {
-    if (l is ChordLex) {
-      seenChord = true;
-    } else if (l is WordLex) {
-      break;
-    } else if (!_dashTokenRe.hasMatch((l as SymbolLex).text)) {
-      return seenChord; // символьный хвост: аккордная, если была голова
-    }
+  final chords = lex.whereType<ChordLex>().toList();
+  if (chords.isEmpty) return false;
+  if (chords.length == 1 && _isWordTrap(chords.single, line, lex)) {
+    return false;
   }
-
-  final body = line.replaceAll(RegExp(r'\[[^\]]*\]'), ' ');
-  var chordChars = 0;
-  var nonWs = 0;
-  for (final l in lexLine(body)) {
-    final len = l.end - l.start;
-    nonWs += len;
-    if (l is ChordLex) chordChars += len;
-  }
-  return nonWs > 0 && chordChars * 2 > nonWs;
+  return true;
 }
+
+/// Ловушка: одиночная буква-корень или Am в начале строки / после точки,
+/// после которого есть слово из двух и более букв.

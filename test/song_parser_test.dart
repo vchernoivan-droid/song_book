@@ -88,12 +88,30 @@ void main() {
       expect(lex.map((l) => l.end).toList(), [4, 6, 8]);
     });
 
-    test('метка + пайпы пока остаётся текстовой строкой (до тюнинга правил)', () {
+    test('классификация: всё — аккорды, кроме слов-ловушек', () {
+      // метка + пайпы — аккордная строка
       expect(
           isChordLineText('Вступление: Dm |   Dm   |   G   |   C   C7'),
-          isFalse);
+          isTrue);
+      expect(isChordLineText('[Куплет]:Dm   A7        Dm'), isTrue);
       expect(isChordLineText('G C // комментарий'), isTrue);
+      expect(isChordLineText('Am'), isTrue); // висячий аккорд
+      expect(isChordLineText('Am 2x'), isTrue);
+
+      // ловушки: союз/предлог с заглавной, английское A/Am
+      expect(isChordLineText('В лесу родилась ёлочка'), isFalse);
+      expect(isChordLineText('А он мне не ответил'), isFalse);
+      expect(isChordLineText('С Новым годом'), isFalse);
+      expect(isChordLineText('Раз. В два бита'), isFalse);
       expect(isChordLineText('Am I wrong'), isFalse);
+      expect(isChordLineText('On a dark desert highway'), isFalse);
+    });
+
+    test('метка + пайпы транспонируется', () {
+      final t = parseSong(
+              'Вступление: Dm |   Dm   |   G   |   C   C7\n')
+          .transposed(1);
+      expect(chordNames(t), ['Ebm', 'Ebm', 'Ab', 'C#', 'C#7']);
     });
   });
 
