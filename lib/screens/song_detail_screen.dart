@@ -32,35 +32,49 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   late final Ticker _ticker;
   final _scrollCtrl = ScrollController();
   bool _autoScroll = false;
-  double _scrollPxPerSec = 0;
+  bool _pausedByDrag = false;
+  final _pos = ValueNotifier<double>(0);
   Duration _lastElapsed = Duration.zero;
   int _countdown = 0;
+  late ({String text, List<double> tops, double totalHeight}) _layout;
 
   @override
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick);
+    _refreshLayout();
   }
 
   @override
   void dispose() {
     _ticker.dispose();
     _scrollCtrl.dispose();
+    _pos.dispose();
     super.dispose();
   }
 
-  /// Модель песни с применённым транспонированием — единственное
-  /// представление: и просмотр, и сохранение работают с ним.
+  // Единственное представление: просмотр и сохранение работают с ним.
   ParsedSong get _transposedSong =>
       parseSong(_song.content).transposed(_semitones);
 
-  /// Текст, который видит пользователь: канонический рендер модели.
-  String get _displayedBody => renderSong(_transposedSong);
+  void _refreshLayout() {
+    final rendered = renderSongLines(_transposedSong);
+    final lineHeight = _fontSize * 1.35;
+    _layout = (
+      text: rendered.text,
+      tops: lineTops(
+        text: rendered.text,
+        ranges: rendered.lines,
+        lineHeight: lineHeight,
+      ),
+      totalHeight: '\n'.allMatches(rendered.text).length * lineHeight,
+    );
+  }
 
   Future<void> _edit() async {
     // Редактор открываем ровно с тем текстом, что на экране: сохранится
     // он как есть, шапка транспонирования не пишется (transpose = 0).
-    final editing = _song.copyWith(content: _displayedBody, transpose: 0);
+    final editing = _song.copyWith(content: _layout.text, transpose: 0);
     final updated = await Navigator.of(context).push<Song?>(
       MaterialPageRoute(builder: (_) => SongEditorScreen(song: editing)),
     );
@@ -70,6 +84,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         _semitones = updated.transpose;
         _fontSize = updated.fontSize;
         _scrollSpeed = updated.scrollSpeed;
+        _refreshLayout();
       });
     }
   }
@@ -77,15 +92,20 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   void _shiftTo(int value) {
     final v = ((value % 12) + 12) % 12;
     if (v == _semitones) return;
-    setState(() => _semitones = v);
+    setState(() {
+      _semitones = v;
+      _refreshLayout();
+    });
     _persist(v, _fontSize, _scrollSpeed);
   }
 
   void _setFontSize(int value) {
     final v = value.clamp(10, 28);
     if (v == _fontSize) return;
-    setState(() => _fontSize = v);
-    if (_autoScroll) _scrollPxPerSec = _scrollPxPerSecond();
+    setState(() {
+      _fontSize = v;
+      _refreshLayout();
+    });
     _persist(_semitones, v, _scrollSpeed);
   }
 
@@ -93,7 +113,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     final v = value.clamp(1, 60);
     if (v == _scrollSpeed) return;
     setState(() => _scrollSpeed = v);
-    if (_autoScroll) _scrollPxPerSec = _scrollPxPerSecond();
     _persist(_semitones, _fontSize, v);
   }
 
@@ -126,46 +145,76 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     });
   }
 
-  double _scrollPxPerSecond() {
-    final lineHeight = _fontSize * 1.35;
-    final parsed = _transposedSong;
-    final body = renderSong(parsed);
+  double _lineYAt(double pos) {
+    final tops = _layout.tops;
+    if (tops.isEmpty) return 0;
+    if (pos <= 0) return tops.first;
+    final last = tops.length - 1;
+    if (pos >= last) {
+      return tops[last] + (pos - last) * (_layout.totalHeight - tops[last]);
+    }
+    final k = pos.floor();
+    final frac = pos - k;
+    return tops[k] + (tops[k + 1] - tops[k]) * frac;
+  }
 
-    final parts = body.split('\n');
-    var physical = parts.length;
-    if (parts.isNotEmpty && parts.last.isEmpty) physical--;
+  double _posForY(double y) {
+    final tops = _layout.tops;
+    if (tops.isEmpty) return 0;
+    if (y <= tops.first) return 0;
+    final last = tops.length - 1;
+    if (y >= _layout.totalHeight) return tops.length.toDouble();
+    if (y >= tops[last]) {
+      return last + (y - tops[last]) / (_layout.totalHeight - tops[last]);
+    }
+    for (var k = 0; k < last; k++) {
+      if (y >= tops[k] && y <= tops[k + 1]) {
+        return k + (y - tops[k]) / (tops[k + 1] - tops[k]);
+      }
+    }
+    return last.toDouble();
+  }
 
-    final tokenLines = parsed.sections.fold(
-      0,
-      (sum, s) => sum + s.lines.length,
-    );
-    return autoScrollPxPerSecond(
-      linesPerMinute: _scrollSpeed,
-      tokenLines: tokenLines,
-      physicalLines: physical,
-      lineHeight: lineHeight,
-    );
+  void _syncPosFromScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final o = _scrollCtrl.offset;
+    if (o <= 0) {
+      _pos.value = 0;
+      return;
+    }
+    _pos.value =
+        _posForY(o + _scrollCtrl.position.viewportDimension * 0.4 - 16);
   }
 
   void _onTick(Duration elapsed) {
     if (!_scrollCtrl.hasClients) return;
-    final dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
-    _lastElapsed = elapsed;
-    final max = _scrollCtrl.position.maxScrollExtent;
-    final next = _scrollCtrl.offset + _scrollPxPerSec * dt;
-    if (next >= max) {
-      _scrollCtrl.jumpTo(max);
+    final tops = _layout.tops;
+    if (tops.isEmpty) {
       _stopAutoScroll();
       return;
     }
-    _scrollCtrl.jumpTo(next);
+    final dt = (elapsed - _lastElapsed).inMicroseconds / 1e6;
+    _lastElapsed = elapsed;
+    _pos.value += dt * _scrollSpeed / 60;
+    if (_pos.value >= tops.length) {
+      _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+      _stopAutoScroll();
+      return;
+    }
+    final max = _scrollCtrl.position.maxScrollExtent;
+    final target = targetOffset(
+      lineTop: _lineYAt(_pos.value),
+      viewport: _scrollCtrl.position.viewportDimension,
+    );
+    _scrollCtrl.jumpTo(target > max ? max : target);
   }
 
   Future<void> _startAutoScroll() async {
     setState(() {
       _autoScroll = true;
-      _scrollPxPerSec = _scrollPxPerSecond();
+      _pausedByDrag = false;
       _countdown = 3;
+      _syncPosFromScroll();
     });
     while (_countdown > 0 && mounted && _autoScroll) {
       await Future.delayed(const Duration(seconds: 1));
@@ -173,12 +222,28 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       setState(() => _countdown = _countdown - 1);
     }
     if (!mounted || !_autoScroll) return;
+    _syncPosFromScroll();
+    _lastElapsed = Duration.zero;
+    _ticker.start();
+  }
+
+  void _pauseAutoScroll() {
+    if (_pausedByDrag) return;
+    _pausedByDrag = true;
+    _ticker.stop();
+  }
+
+  void _resumeAutoScroll() {
+    if (!_pausedByDrag || !mounted || !_autoScroll) return;
+    _pausedByDrag = false;
+    _syncPosFromScroll();
     _lastElapsed = Duration.zero;
     _ticker.start();
   }
 
   void _stopAutoScroll() {
     _ticker.stop();
+    _pausedByDrag = false;
     if (mounted) {
       setState(() {
         _autoScroll = false;
@@ -288,7 +353,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       fontSize: _fontSize.toDouble(),
       height: 1.35,
     );
-    final displayed = _song.content.isEmpty ? '(пусто)' : _displayedBody;
+    final text = _song.content.isEmpty ? '(пусто)' : _layout.text;
     return Scaffold(
       appBar: AppBar(
         title: Text(_song.title, overflow: TextOverflow.ellipsis),
@@ -353,11 +418,48 @@ class _SongDetailScreenState extends State<SongDetailScreen>
           Expanded(
             child: Stack(
               children: [
-                SingleChildScrollView(
-                  controller: _scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                  child: SelectableText(displayed, style: mono),
+                NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n is ScrollStartNotification &&
+                        n.dragDetails != null &&
+                        _autoScroll) {
+                      if (_ticker.isActive) {
+                        _pauseAutoScroll();
+                      } else {
+                        _stopAutoScroll();
+                      }
+                    } else if (n is ScrollEndNotification && _pausedByDrag) {
+                      _resumeAutoScroll();
+                    }
+                    return false;
+                  },
+                  child: SingleChildScrollView(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(32, 16, 16, 32),
+                    child: SelectableText(text, style: mono),
+                  ),
                 ),
+                if (_autoScroll)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: Listenable.merge([_scrollCtrl, _pos]),
+                        builder: (_, _) {
+                          if (!_scrollCtrl.hasClients) {
+                            return const SizedBox.shrink();
+                          }
+                          final screenY =
+                              _lineYAt(_pos.value) + 16 - _scrollCtrl.offset;
+                          return CustomPaint(
+                            painter: _CursorPainter(
+                              screenY,
+                              Colors.green.shade800,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 if (_countdown > 0)
                   Center(
                     child: Container(
@@ -393,4 +495,25 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       ),
     );
   }
+}
+
+class _CursorPainter extends CustomPainter {
+  final double y;
+  final Color color;
+
+  _CursorPainter(this.y, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(30, y)
+      ..lineTo(10, y - 12)
+      ..lineTo(10, y + 12)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_CursorPainter oldDelegate) =>
+      oldDelegate.y != y || oldDelegate.color != color;
 }

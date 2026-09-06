@@ -866,4 +866,20 @@ e|-------0---------------|
           'G#7~A7\nсло-во\n');
     });
   });
+
+  group('renderSongLines', () {
+    test('диапазон пары аккорды+текст', () {
+      final r = renderSongLines(parseSong('Am F\nтекст\n'));
+      expect(r.text, 'Am  F\nтекст\n');
+      expect(r.lines, [(start: 0, end: 11)]);
+    });
+
+    test('прогрессия и пара — два диапазона', () {
+      final r = renderSongLines(parseSong('Am\nAm F\nтекст\n'));
+      expect(r.lines.length, 2);
+      expect(r.text.substring(r.lines[0].start, r.lines[0].end), 'Am');
+      expect(
+          r.text.substring(r.lines[1].start, r.lines[1].end), 'Am  F\nтекст');
+    });
+  });
 }

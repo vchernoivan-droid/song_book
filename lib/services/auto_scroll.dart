@@ -1,14 +1,25 @@
-/// Переводит «строк в минуту» в скорость прокрутки (px/сек).
-///
-/// [tokenLines] — число токен-строк песни, [physicalLines] — число физических
-/// строк канонического рендера. Их отношение — средняя высота одной
-/// токен-строки, а [lineHeight] — высота одной физической строки в px.
-double autoScrollPxPerSecond({
-  required int linesPerMinute,
-  required int tokenLines,
-  required int physicalLines,
+// Держим верх активной строки на fraction высоты экрана; ниже 0 не уходим.
+double targetOffset({
+  required double lineTop,
+  required double viewport,
+  double fraction = 0.4,
+  double topPadding = 16,
+}) {
+  final t = lineTop + topPadding - viewport * fraction;
+  return t < 0 ? 0 : t;
+}
+
+// Верх логической строки: номер её физической строки × lineHeight.
+List<double> lineTops({
+  required String text,
+  required List<({int start, int end})> ranges,
   required double lineHeight,
 }) {
-  if (tokenLines <= 0 || physicalLines <= 0) return 0;
-  return linesPerMinute * (physicalLines / tokenLines) * lineHeight / 60;
+  final newlines = List<int>.filled(text.length + 1, 0);
+  var count = 0;
+  for (var i = 0; i < text.length; i++) {
+    if (text.codeUnitAt(i) == 0x0A) count++;
+    newlines[i + 1] = count;
+  }
+  return [for (final r in ranges) newlines[r.start] * lineHeight];
 }

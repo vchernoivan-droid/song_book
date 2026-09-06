@@ -1,18 +1,29 @@
 part of 'song_parser.dart';
 
-String renderSong(ParsedSong song) {
-  final parts = song.sections
-      .map((s) => _renderSection(s, song.tonic, song.tonicName))
-      .where((s) => s.isNotEmpty);
-  if (parts.isEmpty) return '';
-  return '${parts.join('\n\n')}\n';
-}
+String renderSong(ParsedSong song) => renderSongLines(song).text;
 
-String _renderSection(Section section, int tonic, String tonicName) {
-  final header = section.title == null ? null : '[${section.title}]';
-  final out = <String?>[header];
-  out.addAll(section.lines.map((l) => _renderLine(l, tonic, tonicName)));
-  return out.whereType<String>().join('\n');
+// Канонический текст + char-диапазоны логических строк (для автоскролла).
+({String text, List<({int start, int end})> lines}) renderSongLines(
+    ParsedSong song) {
+  final buf = StringBuffer();
+  final ranges = <({int start, int end})>[];
+  var written = 0;
+  for (final section in song.sections) {
+    if (section.lines.isEmpty && section.title == null) continue;
+    if (written > 0) buf.write('\n');
+    written++;
+    if (section.title != null) {
+      buf.write('[${section.title}]\n');
+    }
+    for (final line in section.lines) {
+      final start = buf.length;
+      buf.write(_renderLine(line, song.tonic, song.tonicName));
+      final end = buf.length;
+      ranges.add((start: start, end: end));
+      buf.write('\n');
+    }
+  }
+  return (text: buf.toString(), lines: ranges);
 }
 
 String _renderLine(Line line, int tonic, String tonicName) {
