@@ -30,24 +30,20 @@ library;
 
 import 'syllable_split.dart';
 
-/// Разновидность секции — по ключевым словам заголовка.
 enum SectionKind { verse, chorus, bridge, intro, outro, solo, unknown }
 
 const Map<String, int> _letterPitch = {
   'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11, 'H': 11,
 };
 
-/// Предпочитаемые написания полутонов: диезы для C#, F#, бемоли для Eb, Ab, Bb.
 const List<String> _pitchNames = [
   'C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
 ];
 
 int _mod12(int pitch) => ((pitch % 12) + 12) % 12;
 
-/// Каноническое имя питча по таблице предпочтительных написаний.
 String pitchName(int pitch) => _pitchNames[_mod12(pitch)];
 
-/// Питч записанного корня: буква + случайный знак.
 int _pitchOf(String root) {
   final letter = root.substring(0, 1);
   final accidental = root.length > 1 ? root.substring(1) : '';
@@ -57,9 +53,7 @@ int _pitchOf(String root) {
   return _mod12(pitch);
 }
 
-/// Абсолютный аккорд строкового слоя: питчи вместо имён. Используется
-/// при сканировании текста ([scanChordLine], [parseChord]) и в строчной
-/// замене аккордов редактора; модель получает [Chord] вычитанием тоники.
+// Абсолютный аккорд (питчи) строкового слоя; в модель уходит Chord вычитанием тоники.
 class PitchChord {
   final int root;
   final String quality;
@@ -85,8 +79,7 @@ class PitchChord {
   String toString() => display;
 }
 
-/// Аккорд модели: смещения от тоники песни, тоника не хранится —
-/// имя появляется только в рендере ([display]).
+// Смещения от тоники; тоника не хранится, имя считает display().
 class Chord {
   final int rootOffset;
   final String quality;
@@ -104,8 +97,7 @@ class Chord {
         bassOffset =
             chord.bass == null ? null : _mod12(chord.bass! - tonic);
 
-  /// Имя аккорда в тональности [tonic]. Смещение 0 — тоника — рендерится
-  /// написанным именем [tonicName], прочие — по таблице имён.
+  // Смещение 0 — тоника — пишем tonicName, прочие по таблице имён.
   String display(int tonic, [String? tonicName]) {
     String name(int offset) => offset == 0 && tonicName != null
         ? tonicName
@@ -134,19 +126,15 @@ sealed class Token {
   const Token();
 }
 
-/// Позиция слога в слове: none — слово из одного слога, right — первый
-/// слог, left — последний, both — середина. Начало слова — none|right.
+// right — первый слог, left — последний, both — середина; начало слова — none|right.
 enum SyllableDash { none, right, both, left }
 
 class SyllableToken extends Token {
-  /// Текст слога; может начинаться с дефиса исходника («-Мулла»),
-  /// растяжка раскладки добавляет такой же, но нового не порождает
-  /// в модели — он существует только в рендере.
+  // Ведущий дефис исходника — в тексте; растяжечный дефис модель не хранит (только рендер).
   final String text;
 
   final SyllableDash dash;
 
-  /// Первый аккорд слога (смена на его начале).
   final Chord? chord;
 
   const SyllableToken(this.text, {this.dash = SyllableDash.none, this.chord});
@@ -165,8 +153,6 @@ class SyllableToken extends Token {
 class ChordToken extends Token {
   final Chord chord;
 
-  /// Аккорд за пределами слов строки — рендерится после последнего слова,
-  /// а не над началом своего.
   final bool endOfLine;
 
   const ChordToken(this.chord, {this.endOfLine = false});
@@ -193,7 +179,6 @@ class RawToken extends Token {
 }
 
 class AnnotationToken extends Token {
-  /// Хвостовая пометка строки текста («(2 раза)»).
   final String text;
 
   const AnnotationToken(this.text);
@@ -207,9 +192,7 @@ class AnnotationToken extends Token {
 }
 
 class InlineToken extends Token {
-  /// Не-аккордный кусок аккордной строки: «~»-наклейка между аккордами
-  /// ([glued] — вплотную к предыдущему аккорду) или текстовая пометка
-  /// («2x», «// комментарий») — через пробел.
+  // ~ вплотную к предыдущему аккорду (glued) или пометка «2x»/«// …» через пробел.
   final String text;
 
   final bool glued;
@@ -224,23 +207,17 @@ class InlineToken extends Token {
   int get hashCode => Object.hash(text, glued);
 }
 
-/// Строка песни. Слитная пара «аккорды + текст» — одна [Line]: первый
-/// аккорд слога — в поле [SyllableToken.chord], дополнительные смены на
-/// слоге — [ChordToken] сразу после него, аккорды за концом слов — в
-/// конце списка с [ChordToken.endOfLine].
+// Слитная пара «аккорды+текст» — одна Line: первый аккорд в SyllableToken.chord, смены — ChordToken, за концом слов — ChordToken(endOfLine).
 class Line {
   final List<Token> tokens;
 
   const Line(this.tokens);
 
-  /// Строка без слов (интро, проигрыш без текста): аккорды, inline-куски
-  /// и хвостовые аннотации.
   bool get isProgression =>
       tokens.isNotEmpty && tokens.every((t) => t is! SyllableToken);
 }
 
 class Section {
-  /// Распознанный текст заголовка («Куплет 1»); null — блока без заголовка.
   final String? title;
 
   final SectionKind kind;
@@ -256,16 +233,14 @@ class Section {
 class ParsedSong {
   final List<Section> sections;
 
-  /// Тоника песни (0–11): при разборе — питч первого аккорда.
   final int tonic;
 
-  /// Написание тоники как в исходнике («G#», а не «Ab»): сам первый
-  /// аккорд рендерится своим именем, остальные — по таблице имён.
+  // Написание тоники как в исходнике («G#», не «Ab»).
   final String tonicName;
 
   const ParsedSong(this.sections, {this.tonic = 0, this.tonicName = 'C'});
 
-  /// Транспонирование — смена тоники: смещения аккордов не меняются.
+  // Меняем только тонику — смещения аккордов те же.
   ParsedSong transposed(int semitones) => semitones == 0
       ? this
       : ParsedSong(sections,
@@ -277,9 +252,6 @@ class ParsedSong {
 // Парсинг
 // ---------------------------------------------------------------------------
 
-/// Разбирает текст песни (без служебной шапки транспонирования).
-/// Тоника — первый аккорд (питч и написание); песня без аккордов
-/// получает до-мажор.
 ParsedSong parseSong(String content) {
   final lines = content.split('\n');
   final first = _firstChord(lines);
@@ -325,8 +297,7 @@ Section _parseSection(List<String> block, int tonic) {
   );
 }
 
-/// Распознаёт строку-заголовок: «[Куплет 1]» (всегда) или «Припев:»
-/// (только если внутри есть ключевое слово секции).
+// «[…]» всегда заголовок; «…:» — только если внутри ключевое слово.
 ({String title, SectionKind kind})? _parseHeader(String line) {
   final bracket = RegExp(r'^\s*\[([^\]]+)\]\s*$').firstMatch(line);
   final colon =
@@ -391,7 +362,6 @@ Line _lyricLine(String line) {
   return Line(tokens);
 }
 
-/// Наклейка-переход: кусок только из «~» прилипает к предыдущему аккорду.
 final RegExp _glueRe = RegExp(r'^~+$');
 
 Line _progressionLine(String line, int tonic) {
@@ -422,15 +392,6 @@ Line _progressionLine(String line, int tonic) {
   return Line(tokens);
 }
 
-/// Склеивает пару физических строк в одну [Line].
-///
-/// Аккорд привязывается к слогу, только если их колонки пересекаются
-/// (слог владеет хвостовым дефисом исходника); аккорд над пробелом между
-/// словами становится отдельным пустым слогом. Первый аккорд слога —
-/// поле [SyllableToken.chord], следующие — токенами сразу после слога;
-/// аккорд правее конца последнего слова — токеном конца строки. Хвост
-/// аккордной строки разбирается на плоские куски: аккорды — ChordToken,
-/// текст — InlineToken. Хвост текстовой строки — [AnnotationToken].
 Line _mergePair(String over, String under, int tonic) {
   final underSplit = _lyricSplit(under);
   final wordRuns = _runsOf(under, underSplit.head);
@@ -474,6 +435,7 @@ Line _mergePair(String over, String under, int tonic) {
     }
   }
 
+  // Аккорд привязывается к слогу, если колонки пересекаются.
   int chordSlot(ChordLex l) {
     for (var i = 0; i < slotText.length; i++) {
       if (slotText[i].isEmpty) continue;
@@ -482,6 +444,7 @@ Line _mergePair(String over, String under, int tonic) {
     return -1;
   }
 
+  // Аккорд над пробелом между словами → пустой слог.
   int insertEmptySlot(int column) {
     var i = 0;
     while (i < slotStart.length && slotStart[i] < column) {
@@ -537,10 +500,7 @@ Line _mergePair(String over, String under, int tonic) {
   return Line(tokens);
 }
 
-/// Слоги слова, начинающегося в колонке [base]: части, разделённые
-/// дефисами исходника, дополнительно режутся переносом. Ведущий дефис
-/// части входит в текст и диапазон её первого слога — колонки привязки
-/// совпадают с исходником. [SyllableToken.dash] — позиция в слове.
+// Ведущий дефис входит в текст слога — колонки привязки совпадают с исходником.
 List<({String text, SyllableDash dash, int start, int end})>
     _wordSyllables(String word, int base) {
   final spans = <({String text, int start, int end})>[];
@@ -579,8 +539,7 @@ List<({String text, SyllableDash dash, int start, int end})>
   ];
 }
 
-/// Слоги слова без привязки к колонкам и аккордам — для тестов и
-/// последующего анализа структуры.
+// Без колонок и аккордов — для тестов.
 List<SyllableToken> wordSyllables(String text) => [
       for (final s in _wordSyllables(text, 0))
         SyllableToken(s.text, dash: s.dash),
@@ -590,9 +549,7 @@ List<SyllableToken> wordSyllables(String text) => [
 // Лексер
 // ---------------------------------------------------------------------------
 
-/// Лексема строки: аккорд, слово или символьный набег. Решения о типах
-/// строк и сборке токенов принимаются над лексемами, сам лексер
-/// классификацией не занимается.
+// Лексер не классифицирует строки; решения — в парсере.
 sealed class Lex {
   const Lex(this.start, this.end);
 
@@ -600,8 +557,7 @@ sealed class Lex {
   final int end;
 }
 
-/// Аккорд: [chord] — питчи, [rootName] — нормализованное латинское
-/// написание корня («С7» → «C7»).
+// rootName — нормализованное латинское написание («С7» → «C7»).
 class ChordLex extends Lex {
   final PitchChord chord;
   final String rootName;
@@ -619,11 +575,7 @@ class SymbolLex extends Lex {
   const SymbolLex(this.text, super.start, super.end);
 }
 
-/// Лексер: аккорд (с кириллическими двойниками корня/баса — включая
-/// немецкую H-нотацию: Н = B — и стопорами — аккорд не слипается со
-/// словами, но может с символами вроде «~»/«|») | слово (буквы/цифры) |
-/// символьный набег. Пробелы — разделители, позиции лексем — исходные
-/// колонки строки.
+// Кириллические двойники и H-нотацию (Н=B) ловим в regex; стопоры не дают слипнуться со словами.
 final RegExp _lexRe = RegExp(
   '(?<![\\p{L}\\p{N}])'
   '([A-GАВСЕHН])([#b♯♭]?)'
@@ -653,8 +605,6 @@ List<Lex> lexLine(String line, {bool skipPeriods = false}) {
   return lex;
 }
 
-/// Группирует лексемы в «слова» — куски без пробелов (как \\S+):
-/// примыкающие без пробела лексемы склеиваются в один кусок.
 List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
   final runs = <({String text, int start})>[];
   var buf = StringBuffer();
@@ -674,9 +624,6 @@ List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
   return runs;
 }
 
-/// Делит текстовую строку на голову и хвост-аннотацию: хвост начинается с
-/// первого куска без пробелов, начинающегося с символа (не тире), после
-/// непустой головы. Кусок «слово + прилепленная пунктуация» — часть головы.
 ({List<Lex> head, String? annotation}) _lyricSplit(String line) {
   final lex = lexLine(line);
   var headRuns = 0;
@@ -687,6 +634,7 @@ List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
     if (!startsRun) continue;
     final dashOnly = l is SymbolLex && _dashTokenRe.hasMatch(l.text);
     final wordStart = l is WordLex || l is ChordLex;
+    // Хвост-аннотация — первый символьный кусок после слов.
     if (!wordStart && !dashOnly && headRuns > 0) {
       return (head: lex.sublist(0, lex.indexOf(l)), annotation: line.substring(l.start));
     }
@@ -699,9 +647,6 @@ List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
 // Рендеринг
 // ---------------------------------------------------------------------------
 
-/// Собирает текст песни: секции через одну пустую строку, файл завершается
-/// переводом строки. Строки собираются из токенов по правилам макета —
-/// «канонический» вид, имена аккордов — в тональности [ParsedSong.tonic].
 String renderSong(ParsedSong song) {
   final parts = song.sections
       .map((s) => _renderSection(s, song.tonic, song.tonicName))
@@ -727,8 +672,6 @@ String _renderLine(Line line, int tonic, String tonicName) {
   return _renderMerged(line.tokens, tonic, tonicName);
 }
 
-/// Прогрессия: аккорды через три пробела, «~»-наклейки — вплотную,
-/// текстовые пометки — через один пробел.
 String _renderProgression(
     List<Token> tokens, int tonic, String tonicName) {
   final out = StringBuffer();
@@ -757,30 +700,21 @@ String _renderProgression(
   return out.toString();
 }
 
-/// Эффективная ширина аккорда в колонках: имя плюс зарезервированное
-/// место под случайный знак — у аккордов без #/b смена тоники может
-/// его добавить. Одинакова для всех написаний одного аккорда, поэтому
-/// вёрстка не переезжает при транспонировании.
 int chordWidth(Chord chord, int tonic, [String? tonicName]) {
   final root = chord.rootOffset == 0 && tonicName != null
       ? tonicName
       : pitchName(chord.rootOffset + tonic);
   return chord.display(tonic, tonicName).length +
+      // компенсируем ширину #/b, чтобы строки не «ехали» при транспонировании
       (root.length == 1 ? 1 : 0);
 }
 
-/// Пересборка слитной строки единым проходом слева направо: слог и его
-/// первый аккорд встают в одну колонку. Слоги одного слова пишутся
-/// вплотную; когда имя аккорда не влезает в свой слог вплотную, слог
-/// сдвигается вправо и стык получает дефис — слово растягивается ровно
-/// настолько, насколько его растолкали аккорды. Между словами и в
-/// хвосте строки действует резерв [chordWidth].
 String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
   final chords = StringBuffer();
   final words = StringBuffer();
   final wordAnnots = <String>[];
   var prevInline = false;
-  var effEnd = -1;
+  var effEnd = -1; // правая граница аккордной строки (с резервом под #/b)
 
   int mx(int a, int b) => a > b ? a : b;
 
@@ -806,11 +740,11 @@ String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
         } else {
           final hyphen = text.startsWith('-');
           final letters = words.length + (hyphen ? 1 : 0);
-          // Внутри слова аккорды прижаты к слогу (фактический конец имени
-          // + пробел); резерв действует только между словами.
+          // Внутри слова — впритык, без резерва под #/b (он только между словами).
           final col = mx(
               letters,
               prevInline ? effEnd : (chords.isEmpty ? 0 : chords.length + 1));
+          // Аккорд шире слога — слог съезжает вправо, стык растягивается дефисом.
           words.write(col > letters
               ? '${' ' * (col - 1 - words.length)}${hyphen ? text : '-$text'}'
               : text);
@@ -826,8 +760,7 @@ String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
         prevInline = false;
       case InlineToken(:final text, :final glued):
         if (glued) {
-          // Наклейка пишется вплотную, а резерв ширины переносится за неё —
-          // конец «A7~» и «Ab7~» занимает одинаковую полосу колонок.
+          // Резерв ширины переносится за наклейку — «A7~» и «Ab7~» одинаково широки.
           chords.write(text);
           effEnd += text.length;
         } else {
@@ -855,8 +788,7 @@ String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
 // Распознаватели
 // ---------------------------------------------------------------------------
 
-/// Кириллические буквы-двойники латинских — в аккордах из-за не
-/// переключённой раскладки («С7» вместо «C7»). Индексы строк синхронны.
+// Двойники латинских из-за раскладки; индексы синхронны с _lookalikeLatin.
 const String _lookalikeCyrillic = 'АВЕКМНОРСТУХ';
 const String _lookalikeLatin = 'ABEKMHOPCTYX';
 
@@ -868,8 +800,6 @@ String _normalizeRootLetter(String letter) {
 String _rootName(Match m) =>
     _normalizeRootLetter(m[1]!) + (m[2] ?? '');
 
-/// Разбирает кусок как аккорд целиком; null — если это не аккорд.
-/// Кириллические двойники корня/баса нормализуются в латиницу.
 PitchChord? parseChord(String token) {
   final m = _lexRe.firstMatch(token);
   if (m == null || m[1] == null || m.start != 0 || m.end != token.length) {
@@ -886,8 +816,7 @@ PitchChord _chordFromMatch(Match m) => PitchChord(
           : _pitchOf(_normalizeRootLetter(m[4]!) + (m[5] ?? '')),
     );
 
-/// Ловушка: одиночная буква-корень или Am в начале строки / после точки,
-/// после которого есть слово из двух и более букв.
+// Ловушка: «А»/«В»/«С»/«Am» в словесной позиции — слово, не аккорд.
 bool _isWordTrap(ChordLex c, String line, List<Lex> lex) {
   final single = c.rootName.length == 1 && c.chord.quality.isEmpty;
   final isAm =
@@ -910,15 +839,10 @@ bool isTabLineText(String line) {
   return _tabLineStart.hasMatch(t) || t.startsWith('----');
 }
 
-/// Одиночные дефисы и тире — пунктуация текста (разделитель частей
-/// фразы), а не маркер хвоста-аннотации.
+// Дефисы/тире — пунктуация текста, не хвост-аннотация.
 final RegExp _dashTokenRe = RegExp(r'^[-‒–—―−]+$');
 
-/// Строка аккордная, если в ней есть аккорды. Исключение — «ловушка»:
-/// единственный аккорд-похожий-на-слово в словесной позиции, после
-/// которого есть настоящее слово («В лесу…», «Am I wrong»), — это слово
-/// (союзы и предлоги с заглавной «А»/«В»/«С», английское «A»/«Am»),
-/// строка текстовая.
+// Строка аккордная, если есть аккорды; одиночная «ловушка» — текстовая.
 bool isChordLineText(String line) {
   final lex = lexLine(line);
   final chords = lex.whereType<ChordLex>().toList();
