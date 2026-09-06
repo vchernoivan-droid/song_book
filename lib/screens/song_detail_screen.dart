@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../models/song.dart';
+import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
@@ -84,6 +85,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     final v = value.clamp(10, 28);
     if (v == _fontSize) return;
     setState(() => _fontSize = v);
+    if (_autoScroll) _scrollPxPerSec = _scrollPxPerSecond();
     _persist(_semitones, v, _scrollSpeed);
   }
 
@@ -91,6 +93,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     final v = value.clamp(1, 60);
     if (v == _scrollSpeed) return;
     setState(() => _scrollSpeed = v);
+    if (_autoScroll) _scrollPxPerSec = _scrollPxPerSecond();
     _persist(_semitones, _fontSize, v);
   }
 
@@ -301,7 +304,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             alignment: Alignment.center,
             decoration: BoxDecoration(
               border: Border.all(
-                color: _fontSize == 15
+                color: _fontSize == defaultFontSize
                     ? Theme.of(context).dividerColor
                     : Theme.of(context).colorScheme.primary,
               ),

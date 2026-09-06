@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:song_book/models/song.dart';
+import 'package:song_book/models/song_defaults.dart';
 
 // Лёгкие unit-тесты без плагинов (path_provider в тестах недоступен).
 
@@ -103,13 +104,13 @@ void main() {
       expect(song.content, 'Am F');
     });
 
-    test('fontSize по умолчанию 15', () {
+    test('fontSize по умолчанию', () {
       final song = Song.fromRaw(
         fileName: 'A.txt',
         title: 'A',
         rawContent: 'Am F',
       );
-      expect(song.fontSize, 15);
+      expect(song.fontSize, defaultFontSize);
     });
 
     test('fontSize за пределами 10..28 обрезается', () {
@@ -121,14 +122,14 @@ void main() {
       expect(song.fontSize, 28);
     });
 
-    test('rawContent пишет шапку шрифта при отличии от 15', () {
+    test('rawContent пишет шапку шрифта при отличии от дефолта', () {
       const song = Song(
         fileName: 'A.txt',
         title: 'A',
         content: 'Am F',
-        fontSize: 20,
+        fontSize: 18,
       );
-      expect(song.rawContent, '# font: 20\nAm F');
+      expect(song.rawContent, '# font: 18\nAm F');
     });
 
     test('fromRaw читает шапку скорости', () {
@@ -175,7 +176,7 @@ void main() {
         '# font: 18\n# scroll: 22\nAm',
       );
       expect(
-        Song.withHeaders(fontSize: 15, scrollSpeed: 15, body: 'Am'),
+        Song.withHeaders(fontSize: defaultFontSize, scrollSpeed: 15, body: 'Am'),
         'Am',
       );
     });

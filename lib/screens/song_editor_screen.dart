@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
+import '../models/song_defaults.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 
@@ -32,7 +33,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   late final TextEditingController _contentCtrl;
   late final String _origTitle;
   late final String _origContent;
-  late final int _fontSize = widget.song?.fontSize ?? 15;
+  late final int _fontSize = widget.song?.fontSize ?? defaultFontSize;
   late final int _scrollSpeed = widget.song?.scrollSpeed ?? 15;
   bool _saving = false;
 

@@ -1,3 +1,5 @@
+import 'song_defaults.dart';
+
 /// Одна песня = один файл в постоянном каталоге приложения.
 class Song {
   /// Имя файла, например "Hotel_California.txt".
@@ -9,15 +11,15 @@ class Song {
   /// Текст песни (аккорды / табы / текст) без служебной шапки.
   final String content;
 
-  /// Сохранённое транспонирование в полутонах (−11…+11).
+  /// Сохранённое транспонирование в полутонах.
   /// Шапка больше не пишется (состояние живёт в тональности файла),
   /// читаем только старые файлы.
   final int transpose;
 
-  /// Сохранённый размер шрифта просмотра (10…28).
+  /// Сохранённый размер шрифта просмотра.
   final int fontSize;
 
-  /// Сохранённая скорость автоскролла в строках в минуту (1…60).
+  /// Сохранённая скорость автоскролла в строках в минуту.
   final int scrollSpeed;
 
   const Song({
@@ -25,7 +27,7 @@ class Song {
     required this.title,
     required this.content,
     this.transpose = 0,
-    this.fontSize = 15,
+    this.fontSize = defaultFontSize,
     this.scrollSpeed = 15,
   });
 
@@ -69,15 +71,14 @@ class Song {
     caseSensitive: false,
   );
 
-  /// Разбирает сырой файл: в начале может идти блок шапок
-  /// «# transpose: +4» и «# font: 15».
+  /// Разбирает сырой файл: в начале может идти блок шапок.
   factory Song.fromRaw({
     required String fileName,
     required String title,
     required String rawContent,
   }) {
     var transpose = 0;
-    var fontSize = 15;
+    var fontSize = defaultFontSize;
     var scrollSpeed = 15;
     final lines = rawContent.split('\n');
     var i = 0;
@@ -93,7 +94,7 @@ class Song {
       }
       final f = _fontHeader.firstMatch(lines[i]);
       if (f != null) {
-        var v = int.tryParse(f.group(1)!) ?? 15;
+        var v = int.tryParse(f.group(1)!) ?? defaultFontSize;
         if (v > 28) v = 28;
         if (v < 10) v = 10;
         fontSize = v;
@@ -135,7 +136,7 @@ class Song {
     required String body,
   }) {
     final header = <String>[];
-    if (fontSize != 15) {
+    if (fontSize != defaultFontSize) {
       header.add('# font: $fontSize');
     }
     if (scrollSpeed != 15) {
