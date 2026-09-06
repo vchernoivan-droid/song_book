@@ -56,8 +56,7 @@ class _DeepSeekSongScreenState extends State<DeepSeekSongScreen> {
     );
   }
 
-  /// Открывает чат DeepSeek в браузере (для ручной проверки).
-  Future<void> _openChat() async {
+  Future<void> _openChatForManualCheck() async {
     await launchUrl(
       Uri.parse(
           'https://chat.deepseek.com/?q=${Uri.encodeQueryComponent(widget.query)}'),
@@ -126,7 +125,7 @@ class _DeepSeekSongScreenState extends State<DeepSeekSongScreen> {
                       _RequestDebug(
                         found.requestDebug,
                         sources: found.sourceHosts,
-                        onOpenChat: _openChat,
+                        onOpenChat: _openChatForManualCheck,
                       ),
                       const SizedBox(height: 16),
                       SelectableText(

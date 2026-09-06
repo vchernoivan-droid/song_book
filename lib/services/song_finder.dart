@@ -27,7 +27,6 @@ class SongFinder {
   Future<FoundSong> find(String query) async {
     final results = await webSearch(query);
 
-    // Грузим top-3 параллельно; неподдающиеся страницы пропускаем.
     final top = results.take(3).toList();
     final fetched = await Future.wait(top.map((r) async {
       try {

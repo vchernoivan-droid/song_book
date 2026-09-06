@@ -31,7 +31,7 @@ class Song {
     this.scrollSpeed = 15,
   });
 
-  /// Короткий текст-превью для списка — первая непустая строка.
+  /// Короткий текст-превью для списка.
   String get preview {
     for (final line in content.split('\n')) {
       final t = line.trim();
@@ -129,7 +129,7 @@ class Song {
         body: content,
       );
 
-  /// Склейка шапок «# font: …» и «# scroll: …» с телом.
+  /// Склейка шапок с телом.
   static String withHeaders({
     required int fontSize,
     required int scrollSpeed,

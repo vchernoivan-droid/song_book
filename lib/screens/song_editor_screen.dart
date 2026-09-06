@@ -5,8 +5,6 @@ import '../models/song_defaults.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 
-/// Экран добавления / редактирования песни.
-///
 /// Если [song] == null — создаём новую, иначе редактируем существующую.
 class SongEditorScreen extends StatefulWidget {
   final Song? song;
@@ -95,7 +93,6 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
     }
   }
 
-  /// Подтверждение перед закрытием без сохранения.
   Future<bool> _confirmExit() async {
     if (!_hasChanges) return true;
     final ok = await showDialog<bool>(

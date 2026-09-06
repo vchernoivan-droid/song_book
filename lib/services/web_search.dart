@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 
 import 'web_fetch.dart' show kDesktopUserAgent;
 
-/// Найденная поисковиком страница.
 class SearchResult {
   final String title;
   final String url;
@@ -16,7 +15,6 @@ class SearchResult {
   }
 }
 
-/// Загруженная страница: заголовок + url + извлечённый текст.
 class WebSource {
   final String title;
   final String url;

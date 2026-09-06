@@ -10,7 +10,7 @@ import 'deepseek_song_screen.dart';
 import 'song_detail_screen.dart';
 import 'song_editor_screen.dart';
 
-/// Главный экран: список песен.
+/// Список песен.
 ///
 /// Сверху — закреплённая строка-заголовок (поиск + «Добавить»),
 /// реализованная как [ListTile], чтобы её иконки выравнивались с
@@ -115,7 +115,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Очистить текст запроса.
   void _clearSearch() {
     _searchCtrl.clear();
     setState(() => _query = '');
@@ -146,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _load();
   }
 
-  /// Экран настройки API-ключа DeepSeek.
   Future<void> _openDeepSeekSetup() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const DeepSeekSettingsScreen()),
@@ -273,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Список песен пуст.
 class _EmptyView extends StatelessWidget {
   final VoidCallback onAdd;
 
@@ -315,7 +312,6 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
-/// По запросу ничего не найдено.
 class _NoResultsView extends StatelessWidget {
   final String query;
   final VoidCallback onClear;

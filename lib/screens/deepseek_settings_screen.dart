@@ -3,7 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/deepseek_credentials.dart';
 
-/// Настройка API-ключа DeepSeek: инструкция, поле, «Сохранить» / «Удалить».
 class DeepSeekSettingsScreen extends StatefulWidget {
   const DeepSeekSettingsScreen({super.key});
 
