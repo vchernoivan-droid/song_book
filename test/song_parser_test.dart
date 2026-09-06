@@ -130,6 +130,30 @@ void main() {
     });
   });
 
+  group('точки в строках аккордов', () {
+    test('лексер: skipPeriods пропускает только точечные лексемы', () {
+      expect(
+          lexLine('Gm. Fm', skipPeriods: true).whereType<ChordLex>().length, 2);
+      expect(lexLine('Gm. Fm').whereType<SymbolLex>().single.text, '.');
+    });
+
+    test('точки после аккордов исчезают при рендере', () {
+      expect(renderSong(parseSong('Gm. Fm\n')), 'Gm   Fm\n');
+      expect(renderSong(parseSong('A. B. C.\n')), 'A   B   C\n');
+    });
+
+    test('точка не сдвигает аккорд над слогом', () {
+      expect(
+        renderSong(parseSong('Gm. Fm\nпою песню\n')),
+        renderSong(parseSong('Gm  Fm\nпою песню\n')),
+      );
+    });
+
+    test('в лирике точки остаются', () {
+      expect(renderSong(parseSong('пою. песню\n')), 'пою. песню\n');
+    });
+  });
+
   group('смена тоники (transposed)', () {
     test('0 полутонов — та же модель', () {
       final song = parseSong('Am F\nтекст\n');

@@ -409,7 +409,7 @@ Line _progressionLine(String line, int tonic) {
     gapStart = null;
   }
 
-  for (final l in lexLine(line)) {
+  for (final l in lexLine(line, skipPeriods: true)) {
     if (l is ChordLex) {
       flushGap();
       tokens.add(ChordToken(Chord.fromPitch(l.chord, tonic)));
@@ -434,7 +434,7 @@ Line _progressionLine(String line, int tonic) {
 Line _mergePair(String over, String under, int tonic) {
   final underSplit = _lyricSplit(under);
   final wordRuns = _runsOf(under, underSplit.head);
-  final lex = lexLine(over);
+  final lex = lexLine(over, skipPeriods: true);
 
   final slotText = <String>[];
   final slotStart = <int>[];
@@ -635,13 +635,17 @@ final RegExp _lexRe = RegExp(
   unicode: true,
 );
 
-List<Lex> lexLine(String line) {
+final RegExp _dotRunRe = RegExp(r'^\.+$');
+
+List<Lex> lexLine(String line, {bool skipPeriods = false}) {
   final lex = <Lex>[];
   for (final m in _lexRe.allMatches(line)) {
     if (m[1] != null) {
       lex.add(ChordLex(_chordFromMatch(m), _rootName(m), m.start, m.end));
     } else if (m[6] != null) {
       lex.add(WordLex(m[6]!, m.start, m.end));
+    } else if (skipPeriods && _dotRunRe.hasMatch(m[7]!)) {
+      continue;
     } else {
       lex.add(SymbolLex(m[7]!, m.start, m.end));
     }

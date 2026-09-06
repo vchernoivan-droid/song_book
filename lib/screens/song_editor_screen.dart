@@ -164,6 +164,13 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
               Expanded(
                 child: TextField(
                   controller: _contentCtrl,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textCapitalization: TextCapitalization.none,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   maxLines: null,
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
