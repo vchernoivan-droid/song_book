@@ -7,6 +7,7 @@ import '../services/deepseek_credentials.dart';
 import '../services/song_storage.dart';
 import 'deepseek_settings_screen.dart';
 import 'deepseek_song_screen.dart';
+import 'listen_screen.dart';
 import 'song_detail_screen.dart';
 import 'song_editor_screen.dart';
 
@@ -78,6 +79,12 @@ class _HomeScreenState extends State<HomeScreen> {
         })
         .where((x) => x.preview != null)
         .toList();
+  }
+
+  Future<void> _openListen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ListenScreen()),
+    );
   }
 
   Future<void> _openEditor([Song? song]) async {
@@ -158,6 +165,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final filtered = _filtered;
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Слушать',
+        onPressed: _openListen,
+        child: const Icon(Icons.mic_none),
+      ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())

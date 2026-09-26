@@ -176,15 +176,24 @@ code_sign_if_enabled() {
 }
 
 if [[ "$CONFIGURATION" == "Debug" ]]; then
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchException/CwlCatchException.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchExceptionSupport/CwlCatchExceptionSupport.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/speech_to_text/speech_to_text.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/url_launcher_macos/url_launcher_macos.framework"
 fi
 if [[ "$CONFIGURATION" == "Profile" ]]; then
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchException/CwlCatchException.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchExceptionSupport/CwlCatchExceptionSupport.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/speech_to_text/speech_to_text.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/url_launcher_macos/url_launcher_macos.framework"
 fi
 if [[ "$CONFIGURATION" == "Release" ]]; then
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchException/CwlCatchException.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/CwlCatchExceptionSupport/CwlCatchExceptionSupport.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/shared_preferences_foundation/shared_preferences_foundation.framework"
+  install_framework "${BUILT_PRODUCTS_DIR}/speech_to_text/speech_to_text.framework"
   install_framework "${BUILT_PRODUCTS_DIR}/url_launcher_macos/url_launcher_macos.framework"
 fi
 if [ "${COCOAPODS_PARALLEL_CODE_SIGN}" == "true" ]; then
