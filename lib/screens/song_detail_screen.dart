@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../models/song.dart';
 import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
+import '../services/song_listen_logger.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 import 'song_editor_screen.dart';
@@ -36,6 +39,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   final _pos = ValueNotifier<double>(0);
   Duration _lastElapsed = Duration.zero;
   int _countdown = 0;
+  SongListenLogger? _recorder;
   late ({String text, List<double> tops, double totalHeight}) _layout;
 
   @override
@@ -47,6 +51,8 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   @override
   void dispose() {
+    _recorder?.stop();
+    _recorder = null;
     _ticker.dispose();
     _scrollCtrl.dispose();
     _pos.dispose();
@@ -216,26 +222,58 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       _countdown = 3;
       _syncPosFromScroll();
     });
+    unawaited(_startRecording());
     while (_countdown > 0 && mounted && _autoScroll) {
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted || !_autoScroll) return;
       setState(() => _countdown = _countdown - 1);
     }
     if (!mounted || !_autoScroll) return;
+    _recorder?.note('countdown-end');
     _syncPosFromScroll();
     _lastElapsed = Duration.zero;
     _ticker.start();
   }
 
+  Future<void> _startRecording() async {
+    final logger = SongListenLogger(
+      title: _song.title,
+      scrollSpeed: _scrollSpeed,
+      fontSize: _fontSize,
+      position: () => _pos.value,
+    );
+    _recorder = logger;
+    bool ok;
+    try {
+      ok = await logger.start();
+    } catch (e) {
+      debugPrint('STT start failed: $e');
+      ok = false;
+    }
+    if (!ok) {
+      if (identical(_recorder, logger)) _recorder = null;
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Микрофон недоступен — без записи')),
+        );
+      }
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
   void _pauseAutoScroll() {
     if (_pausedByDrag) return;
     _pausedByDrag = true;
+    _recorder?.note('auto-pause');
     _ticker.stop();
   }
 
   void _resumeAutoScroll() {
     if (!_pausedByDrag || !mounted || !_autoScroll) return;
     _pausedByDrag = false;
+    _recorder?.note('auto-resume');
     _syncPosFromScroll();
     _lastElapsed = Duration.zero;
     _ticker.start();
@@ -244,6 +282,8 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   void _stopAutoScroll() {
     _ticker.stop();
     _pausedByDrag = false;
+    _recorder?.stop();
+    _recorder = null;
     if (mounted) {
       setState(() {
         _autoScroll = false;
@@ -288,6 +328,18 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         ),
         child: Row(
           children: [
+            if (_recorder != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, right: 2),
+                child: Tooltip(
+                  message: 'Идёт запись таймингов',
+                  child: Icon(
+                    Icons.fiber_manual_record,
+                    size: 16,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ),
             IconButton(
               tooltip: _autoScroll ? 'Пауза' : 'Автоскролл',
               visualDensity: VisualDensity.compact,
