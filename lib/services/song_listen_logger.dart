@@ -13,6 +13,7 @@ typedef SongListenLoggerFactory = SongListenLogger Function({
   required int fontSize,
   required String? localeId,
   required double Function() position,
+  void Function(String recognizedWords)? onResult,
 });
 
 class SongListenLogger {
@@ -22,12 +23,14 @@ class SongListenLogger {
     required this.fontSize,
     required this.localeId,
     required this.position,
+    this.onResult,
   });
 
   final String title;
   final int scrollSpeed;
   final int fontSize;
   final String? localeId;
+  final void Function(String recognizedWords)? onResult;
   final double Function() position;
 
   final _speech = SpeechToText();
@@ -106,6 +109,7 @@ class SongListenLogger {
       'alt=${result.alternates.length} '
       'pos=${position().toStringAsFixed(2)}: ${result.recognizedWords}',
     );
+    onResult?.call(result.recognizedWords);
   }
 
   void _write(String line) {

@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../models/song.dart';
 import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
+import '../services/lyric_locator.dart';
 import '../services/song_listen_logger.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
@@ -45,7 +46,12 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   Duration _lastElapsed = Duration.zero;
   int _countdown = 0;
   SongListenLogger? _recorder;
-  late ({String text, List<double> tops, double totalHeight}) _layout;
+  LyricLocator? _locator;
+  final _singerLine = ValueNotifier<int?>(null);
+  int? _matchedLine;
+  Timer? _silenceTimer;
+  late ({String text, List<double> tops, List<double> textCenters, double totalHeight})
+      _layout;
 
   @override
   void initState() {
@@ -56,11 +62,13 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   @override
   void dispose() {
+    _resetSinger();
     _recorder?.stop();
     _recorder = null;
     _ticker.dispose();
     _scrollCtrl.dispose();
     _pos.dispose();
+    _singerLine.dispose();
     super.dispose();
   }
 
@@ -78,8 +86,14 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         ranges: rendered.lines,
         lineHeight: lineHeight,
       ),
+      textCenters: lineTextCenters(
+        text: rendered.text,
+        ranges: rendered.lines,
+        lineHeight: lineHeight,
+      ),
       totalHeight: '\n'.allMatches(rendered.text).length * lineHeight,
     );
+    _locator = LyricLocator(_transposedSong);
   }
 
   Future<void> _edit() async {
@@ -221,6 +235,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   }
 
   Future<void> _startAutoScroll() async {
+    _resetSinger();
     setState(() {
       _autoScroll = true;
       _pausedByDrag = false;
@@ -247,6 +262,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       fontSize: _fontSize,
       localeId: SongListenLogger.localeIdFor(_song.content),
       position: () => _pos.value,
+      onResult: _onRecognized,
     );
     _recorder = logger;
     bool ok;
@@ -269,9 +285,30 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     if (mounted) setState(() {});
   }
 
+  void _onRecognized(String words) {
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer(const Duration(seconds: 15), _resetSinger);
+    final current = _matchedLine;
+    final line =
+        _locator?.locate(LyricLocator.keysOf(words), previousLine: current);
+    if (line == null || (current != null && line < current)) return;
+    if (line == current) return;
+    _matchedLine = line;
+    _singerLine.value = line;
+    _recorder?.note('match:$line');
+  }
+
+  void _resetSinger() {
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
+    _matchedLine = null;
+    _singerLine.value = null;
+  }
+
   void _pauseAutoScroll() {
     if (_pausedByDrag) return;
     _pausedByDrag = true;
+    _resetSinger();
     _recorder?.note('auto-pause');
     _ticker.stop();
   }
@@ -287,6 +324,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   void _stopAutoScroll() {
     _ticker.stop();
+    _resetSinger();
     _pausedByDrag = false;
     _recorder?.stop();
     _recorder = null;
@@ -501,13 +539,18 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                   Positioned.fill(
                     child: IgnorePointer(
                       child: AnimatedBuilder(
-                        animation: Listenable.merge([_scrollCtrl, _pos]),
+                        animation: Listenable.merge([_scrollCtrl, _singerLine]),
                         builder: (_, _) {
                           if (!_scrollCtrl.hasClients) {
                             return const SizedBox.shrink();
                           }
-                          final screenY =
-                              _lineYAt(_pos.value) + 16 - _scrollCtrl.offset;
+                          final singerLine = _singerLine.value;
+                          if (singerLine == null) {
+                            return const SizedBox.shrink();
+                          }
+                          final screenY = _layout.textCenters[singerLine] +
+                              16 -
+                              _scrollCtrl.offset;
                           return CustomPaint(
                             painter: _CursorPainter(
                               screenY,
