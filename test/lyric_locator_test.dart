@@ -108,7 +108,32 @@ void main() {
     });
   });
 
-  group('якорь на повторах', () {
+  group('стык куплета с бубнением (живые хвосты)', () {
+    final locator = LyricLocator(parseSong(ledokol.trim()));
+
+    test('мусорное слово после последней строки куплета не двигает строку', () {
+      final tail = LyricLocator.keysOf('Город Мурманск, то есть Мурманск барам');
+      expect(locator.locate(tail, previousLine: 7), 7);
+    });
+
+    test('гирлянда из бубнения и первого слова следующего куплета', () {
+      final tail =
+          LyricLocator.keysOf('Мурманск то есть Мурманск барам пампам парам пампам и');
+      expect(locator.locate(tail, previousLine: 7), 7);
+    });
+
+    test('хвост с началом новой строки продвигает на неё', () {
+      final tail = LyricLocator.keysOf('не имели за нашим положением все ок');
+      expect(locator.locate(tail, previousLine: 10), 11);
+    });
+
+    test('чистое бубнение → null', () {
+      final tail = LyricLocator.keysOf('парам пампам парам пампам');
+      expect(locator.locate(tail, previousLine: 7), isNull);
+    });
+  });
+
+  group('повторы: полоса вокруг previousLine', () {
     final locator = LyricLocator(parseSong(chorusSong.trim()));
 
     test('полный припев после первого куплета → первое вхождение', () {
