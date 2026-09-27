@@ -7,6 +7,13 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+typedef SongListenLoggerFactory = SongListenLogger Function({
+  required String title,
+  required int scrollSpeed,
+  required int fontSize,
+  required double Function() position,
+});
+
 class SongListenLogger {
   SongListenLogger({
     required this.title,

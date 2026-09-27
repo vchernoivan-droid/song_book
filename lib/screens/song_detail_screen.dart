@@ -17,7 +17,12 @@ import 'song_editor_screen.dart';
 /// сдвигаем его на полтона, текущее значение пишется прямо в файл песни.
 class SongDetailScreen extends StatefulWidget {
   final Song song;
-  const SongDetailScreen({super.key, required this.song});
+  final SongListenLoggerFactory? listenLoggerFactory;
+  const SongDetailScreen({
+    super.key,
+    required this.song,
+    this.listenLoggerFactory,
+  });
 
   @override
   State<SongDetailScreen> createState() => _SongDetailScreenState();
@@ -236,7 +241,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   }
 
   Future<void> _startRecording() async {
-    final logger = SongListenLogger(
+    final logger = (widget.listenLoggerFactory ?? SongListenLogger.new)(
       title: _song.title,
       scrollSpeed: _scrollSpeed,
       fontSize: _fontSize,

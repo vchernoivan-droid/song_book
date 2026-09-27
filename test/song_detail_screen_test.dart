@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:song_book/models/song.dart';
 import 'package:song_book/screens/song_detail_screen.dart';
+import 'package:song_book/services/song_listen_logger.dart';
 
 Finder _cursorPaint() => find.byWidgetPredicate(
       (w) =>
@@ -26,6 +27,33 @@ Song _song(String content, {int scrollSpeed = 60}) => Song(
 
 String _lines(int n) => List.generate(n, (i) => 'строка $i').join('\n');
 
+SongListenLogger _nullListenLogger({
+  required String title,
+  required int scrollSpeed,
+  required int fontSize,
+  required double Function() position,
+}) =>
+    _NullListenLogger();
+
+class _NullListenLogger extends SongListenLogger {
+  _NullListenLogger()
+      : super(
+          title: 'тест',
+          scrollSpeed: 0,
+          fontSize: 0,
+          position: () => 0,
+        );
+
+  @override
+  Future<bool> start() async => true;
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  void note(String tag) {}
+}
+
 void main() {
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +72,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)))),
+      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -79,7 +107,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)))),
+      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -118,7 +146,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)))),
+      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -178,7 +206,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)))),
+      MaterialApp(home: SongDetailScreen(song: _song(_lines(60)), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -204,7 +232,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(_lines(60), scrollSpeed: 30))),
+      MaterialApp(home: SongDetailScreen(song: _song(_lines(60), scrollSpeed: 30), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -249,7 +277,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song(''))),
+      MaterialApp(home: SongDetailScreen(song: _song(''), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
@@ -271,7 +299,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: SongDetailScreen(song: _song('одна строка'))),
+      MaterialApp(home: SongDetailScreen(song: _song('одна строка'), listenLoggerFactory: _nullListenLogger)),
     );
     await tester.pump();
 
