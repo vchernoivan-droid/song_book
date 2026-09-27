@@ -27,14 +27,22 @@ Song _song(String content, {int scrollSpeed = 60}) => Song(
 
 String _lines(int n) => List.generate(n, (i) => 'строка $i').join('\n');
 
+String _distinctLines() =>
+    'первая строка тут\nвторая строка здесь\nтретья строка везде';
+
+void Function(String recognizedWords)? capturedOnResult;
+
 SongListenLogger _nullListenLogger({
   required String title,
   required int scrollSpeed,
   required int fontSize,
   required String? localeId,
   required double Function() position,
-}) =>
-    _NullListenLogger();
+  void Function(String recognizedWords)? onResult,
+}) {
+  capturedOnResult = onResult;
+  return _NullListenLogger();
+}
 
 class _NullListenLogger extends SongListenLogger {
   _NullListenLogger()
@@ -142,7 +150,7 @@ void main() {
     expect(position.pixels, greaterThan(afterDrag + 0.5));
   });
 
-  testWidgets('автоскролл проходит три фазы и останавливается', (tester) async {
+  testWidgets('автоскролл стартует, едет и останавливается', (tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -163,40 +171,21 @@ void main() {
         .state<ScrollableState>(find.byType(Scrollable).first)
         .position;
     final max = position.maxScrollExtent;
-    final f40 = position.viewportDimension * 0.4;
 
-    final trace = <({double offset, double y})>[];
-    for (var i = 0; i < 120; i++) {
+    var ticksAtStart = 0;
+    for (var i = 0; i < 10 && position.pixels == 0; i++) {
       await tester.pump(const Duration(seconds: 1));
+      ticksAtStart++;
+    }
+    expect(ticksAtStart, greaterThan(0));
+
+    var moved = false;
+    for (var i = 0; i < 200; i++) {
+      await tester.pump(const Duration(seconds: 1));
+      moved = moved || position.pixels > 0;
       if (find.byTooltip('Пауза').evaluate().isEmpty) break;
-      trace.add((offset: position.pixels, y: _cursorY(tester)));
     }
-
-    final phase1 = trace.where((t) => t.offset == 0).toList();
-    final phase2 =
-        trace.where((t) => t.offset > 0 && t.offset < max - 0.5).toList();
-    final phase3 = trace.where((t) => t.offset >= max - 0.5).toList();
-
-    expect(phase1, isNotEmpty);
-    for (final t in phase1) {
-      expect(t.y, lessThan(f40 + 1), reason: 'фаза 1: индикатор выше 40%');
-    }
-
-    expect(phase2, isNotEmpty);
-    for (final t in phase2) {
-      expect(t.y, closeTo(f40, 1), reason: 'фаза 2: индикатор на 40%');
-    }
-
-    expect(phase3.length, greaterThanOrEqualTo(2));
-    for (var i = 1; i < phase3.length; i++) {
-      expect(
-        phase3[i].y,
-        greaterThanOrEqualTo(phase3[i - 1].y - 0.001),
-        reason: 'фаза 3: индикатор едет вниз',
-      );
-    }
-    expect(phase3.last.y, greaterThan(f40 + 5),
-        reason: 'фаза 3: индикатор уехал ниже 40%');
+    expect(moved, isTrue);
 
     expect(find.byTooltip('Автоскролл'), findsOneWidget);
     expect(position.pixels, closeTo(max, 0.5));
@@ -319,5 +308,78 @@ void main() {
 
     expect(find.byTooltip('Автоскролл'), findsOneWidget);
     expect(position.pixels, 0);
+  });
+
+  group('стрелка певца', () {
+    Future<void> startAutoScroll(WidgetTester tester, String content) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SongDetailScreen(
+              song: _song(content), listenLoggerFactory: _nullListenLogger),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('Автоскролл'));
+      await tester.pump();
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+    }
+
+    testWidgets('встаёт на строку, мусор и назад не двигают', (tester) async {
+      await startAutoScroll(tester, _distinctLines());
+      expect(_cursorPaint(), findsNothing);
+      capturedOnResult!('вторая строка здесь');
+      await tester.pump();
+      expect(_cursorPaint(), findsOneWidget);
+      expect(_cursorY(tester), 16 + 27 + 13.5);
+      final y = _cursorY(tester);
+      capturedOnResult!('ыыы чпок щщщ');
+      await tester.pump();
+      expect(_cursorY(tester), y);
+      capturedOnResult!('первая строка тут');
+      await tester.pump();
+      expect(_cursorY(tester), y);
+      capturedOnResult!('третья строка везде');
+      await tester.pump();
+      expect(_cursorY(tester), y + 27.0);
+    });
+
+    testWidgets('стрелка на середине текстового ряда при аккордах', (tester) async {
+      await startAutoScroll(
+          tester, 'первая строка тут\nG\nвторая строка здесь\nтретья строка везде');
+      capturedOnResult!('вторая строка здесь');
+      await tester.pump();
+      expect(_cursorY(tester), 16 + 2 * 27 + 13.5);
+      capturedOnResult!('третья строка везде');
+      await tester.pump();
+      expect(_cursorY(tester), 16 + 3 * 27 + 13.5);
+    });
+
+    testWidgets('пауза автоскролла сбрасывает стрелку', (tester) async {
+      await startAutoScroll(tester, _lines(60));
+      await tester.pump(const Duration(seconds: 1));
+      capturedOnResult!('строка 5');
+      await tester.pump();
+      expect(_cursorPaint(), findsOneWidget);
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -150),
+      );
+      await tester.pump();
+      expect(_cursorPaint(), findsNothing);
+    });
+
+    testWidgets('тишина 15 секунд сбрасывает стрелку', (tester) async {
+      await startAutoScroll(tester, _distinctLines());
+      capturedOnResult!('вторая строка здесь');
+      await tester.pump();
+      expect(_cursorPaint(), findsOneWidget);
+      await tester.pump(const Duration(seconds: 16));
+      expect(_cursorPaint(), findsNothing);
+    });
   });
 }
