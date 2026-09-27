@@ -71,7 +71,7 @@ List<SearchResult> _parseResults(String htmlSource) {
     final title = a.text.trim();
     if (title.isEmpty || !seen.add(url)) continue;
     out.add(SearchResult(title, url));
-    if (out.length >= 8) break;
+    if (out.length >= 12) break;
   }
   return out;
 }

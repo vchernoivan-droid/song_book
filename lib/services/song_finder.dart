@@ -17,21 +17,25 @@ class FoundSong {
   });
 }
 
-/// Конвейер подбора песни: DuckDuckGo-поиск → загрузка top-3 страниц →
+/// Конвейер подбора песни: DuckDuckGo-поиск → загрузка top-10 страниц →
 /// DeepSeek форматирует сырой текст в аккуратный разбор с аккордами.
 class SongFinder {
   SongFinder(this.apiKey);
 
   final String apiKey;
 
+  static const _minSourceChars = 200;
+
   Future<FoundSong> find(String query) async {
     final results = await webSearch(query);
 
-    final top = results.take(3).toList();
+    final top = results.take(10).toList();
     final fetched = await Future.wait(top.map((r) async {
       try {
         final text = await fetchReadableText(r.url);
-        if (text.trim().isNotEmpty) return WebSource(r.title, r.url, text);
+        if (text.trim().length >= _minSourceChars) {
+          return WebSource(r.title, r.url, text);
+        }
       } catch (_) {}
       return null;
     }));

@@ -1,9 +1,15 @@
+import 'dart:convert';
+
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart';
 
 /// Превращает HTML-страницу в читаемый текст, по возможности сохраняя
 /// блоки аккордов и табулатур (обычно они лежат в <pre> / <code>).
 String extractReadableText(String htmlSource) {
   final doc = parse(htmlSource);
+
+  final wikiTab = _wikiTabFromStore(doc);
+  if (wikiTab != null) return _normalize(wikiTab);
 
   for (final selector in [
     'script',
@@ -30,6 +36,38 @@ String extractReadableText(String htmlSource) {
   final main = doc.querySelector('main, article, [role="main"]');
   final source = main ?? doc.body;
   return _normalize(source?.text ?? '');
+}
+
+String? _wikiTabFromStore(dom.Document doc) {
+  for (final el in doc.querySelectorAll('[data-content]')) {
+    final raw = el.attributes['data-content'];
+    if (raw == null || raw.trim().isEmpty) continue;
+    final Object? data;
+    try {
+      data = jsonDecode(raw);
+    } on FormatException {
+      continue;
+    }
+    final content = _wikiTabContent(data);
+    if (content == null || content.trim().isEmpty) continue;
+    return content
+        .replaceAll('[ch]', '')
+        .replaceAll('[/ch]', '')
+        .replaceAll('[tab]', '')
+        .replaceAll('[/tab]', '')
+        .replaceAll('\r\n', '\n');
+  }
+  return null;
+}
+
+String? _wikiTabContent(Object? data) {
+  if (data is! Map) return null;
+  final tabView = data['tab_view'];
+  if (tabView is! Map) return null;
+  final wikiTab = tabView['wiki_tab'];
+  if (wikiTab is! Map) return null;
+  final content = wikiTab['content'];
+  return content is String ? content : null;
 }
 
 String _normalize(String input) {

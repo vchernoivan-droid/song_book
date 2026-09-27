@@ -23,11 +23,13 @@ class DeepSeekSongService {
   static const _model = 'deepseek-chat';
   static const _temperature = 0.3;
 
+  static const _sourceCharLimit = 6000;
+
   List<Map<String, String>> _messagesFor(String query, List<WebSource> sources) {
     final sourcesBlock = sources.asMap().entries.map((e) {
       final s = e.value;
-      final text = s.text.length > 3000
-          ? '${s.text.substring(0, 3000)}…'
+      final text = s.text.length > _sourceCharLimit
+          ? '${s.text.substring(0, _sourceCharLimit)}…'
           : s.text;
       return '=== ${s.host} ===\n$text';
     }).join('\n\n');
