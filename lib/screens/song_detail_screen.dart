@@ -245,6 +245,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       title: _song.title,
       scrollSpeed: _scrollSpeed,
       fontSize: _fontSize,
+      localeId: SongListenLogger.localeIdFor(_song.content),
       position: () => _pos.value,
     );
     _recorder = logger;

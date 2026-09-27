@@ -31,6 +31,7 @@ SongListenLogger _nullListenLogger({
   required String title,
   required int scrollSpeed,
   required int fontSize,
+  required String? localeId,
   required double Function() position,
 }) =>
     _NullListenLogger();
@@ -41,6 +42,7 @@ class _NullListenLogger extends SongListenLogger {
           title: 'тест',
           scrollSpeed: 0,
           fontSize: 0,
+          localeId: null,
           position: () => 0,
         );
 

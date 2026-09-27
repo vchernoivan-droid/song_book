@@ -11,6 +11,7 @@ typedef SongListenLoggerFactory = SongListenLogger Function({
   required String title,
   required int scrollSpeed,
   required int fontSize,
+  required String? localeId,
   required double Function() position,
 });
 
@@ -19,12 +20,14 @@ class SongListenLogger {
     required this.title,
     required this.scrollSpeed,
     required this.fontSize,
+    required this.localeId,
     required this.position,
   });
 
   final String title;
   final int scrollSpeed;
   final int fontSize;
+  final String? localeId;
   final double Function() position;
 
   final _speech = SpeechToText();
@@ -57,6 +60,7 @@ class SongListenLogger {
         listenOptions: SpeechListenOptions(
           partialResults: true,
           listenMode: ListenMode.dictation,
+          localeId: localeId,
         ),
       );
     } catch (e) {
@@ -129,6 +133,14 @@ class SongListenLogger {
     if (deleteFile && file != null && file.existsSync()) {
       file.deleteSync();
     }
+  }
+
+  static String? localeIdFor(String content) {
+    final cyrillic =
+        RegExp(r'\p{Script=Cyrillic}', unicode: true).allMatches(content).length;
+    final latin = RegExp(r'[A-Za-z]').allMatches(content).length;
+    if (cyrillic == 0 && latin == 0) return null;
+    return cyrillic >= latin ? 'ru-RU' : 'en-US';
   }
 
   String _ts() {
