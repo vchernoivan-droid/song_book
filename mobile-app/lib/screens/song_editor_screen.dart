@@ -32,7 +32,6 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
   late final String _origTitle;
   late final String _origContent;
   late final int _fontSize = widget.song?.fontSize ?? defaultFontSize;
-  late final int _scrollSpeed = widget.song?.scrollSpeed ?? 15;
   bool _saving = false;
 
   @override
@@ -81,7 +80,6 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         desiredTitle: title,
         content: Song.withHeaders(
           fontSize: _fontSize,
-          scrollSpeed: _scrollSpeed,
           body: body,
         ),
         oldFileName: widget.song?.fileName,
@@ -94,7 +92,6 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
           title: title,
           content: body,
           fontSize: _fontSize,
-          scrollSpeed: _scrollSpeed,
         ),
       );
     } finally {

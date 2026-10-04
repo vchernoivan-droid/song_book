@@ -37,7 +37,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   late Song _song = widget.song;
   late int _semitones = ((_song.transpose % 12) + 12) % 12;
   late int _fontSize = _song.fontSize;
-  late int _scrollSpeed = _song.scrollSpeed;
   Future<void> _persistChain = Future.value();
 
   final _scrollCtrl = ScrollController();
@@ -157,7 +156,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         _song = updated;
         _semitones = updated.transpose;
         _fontSize = updated.fontSize;
-        _scrollSpeed = updated.scrollSpeed;
         _refreshLayout();
       });
     }
@@ -170,7 +168,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       _semitones = v;
       _refreshLayout();
     });
-    _persist(v, _fontSize, _scrollSpeed);
+    _persist(v, _fontSize);
   }
 
   void _setFontSize(int value) {
@@ -180,17 +178,10 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       _fontSize = v;
       _refreshLayout();
     });
-    _persist(_semitones, v, _scrollSpeed);
+    _persist(_semitones, v);
   }
 
-  void _setScrollSpeed(int value) {
-    final v = value.clamp(1, 60);
-    if (v == _scrollSpeed) return;
-    setState(() => _scrollSpeed = v);
-    _persist(_semitones, _fontSize, v);
-  }
-
-  void _persist(int semitones, int fontSize, int scrollSpeed) {
+  void _persist(int semitones, int fontSize) {
     // Быстрые нажатия не должны гоняться за файловой записью.
     _persistChain = _persistChain.then((_) async {
       try {
@@ -198,7 +189,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
           desiredTitle: _song.title,
           content: Song.withHeaders(
             fontSize: fontSize,
-            scrollSpeed: scrollSpeed,
             body: renderSong(parseSong(_song.content).transposed(semitones)),
           ),
           oldFileName: _song.fileName,
@@ -207,7 +197,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
           fileName: name,
           transpose: 0,
           fontSize: fontSize,
-          scrollSpeed: scrollSpeed,
         );
       } catch (_) {
         if (mounted) {
@@ -314,7 +303,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   Future<void> _startRecording() async {
     final logger = (widget.listenLoggerFactory ?? SongListenLogger.new)(
       title: _song.title,
-      scrollSpeed: _scrollSpeed,
       fontSize: _fontSize,
       localeId: SongListenLogger.localeIdFor(_song.content),
       position: () {
@@ -505,25 +493,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                   _startAutoScroll();
                 }
               },
-            ),
-            IconButton(
-              tooltip: 'Медленнее',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.remove),
-              onPressed: () => _setScrollSpeed(_scrollSpeed - 1),
-            ),
-            Text(
-              '$_scrollSpeed строк/мин',
-              style: const TextStyle(
-                fontSize: 12,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-            IconButton(
-              tooltip: 'Быстрее',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.add),
-              onPressed: () => _setScrollSpeed(_scrollSpeed + 1),
             ),
             Expanded(
               child: Padding(

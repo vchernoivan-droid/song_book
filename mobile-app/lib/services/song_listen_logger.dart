@@ -9,7 +9,6 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 typedef SongListenLoggerFactory = SongListenLogger Function({
   required String title,
-  required int scrollSpeed,
   required int fontSize,
   required String? localeId,
   required double Function() position,
@@ -19,7 +18,6 @@ typedef SongListenLoggerFactory = SongListenLogger Function({
 class SongListenLogger {
   SongListenLogger({
     required this.title,
-    required this.scrollSpeed,
     required this.fontSize,
     required this.localeId,
     required this.position,
@@ -27,7 +25,6 @@ class SongListenLogger {
   });
 
   final String title;
-  final int scrollSpeed;
   final int fontSize;
   final String? localeId;
   final void Function(String recognizedWords)? onResult;
@@ -48,7 +45,7 @@ class SongListenLogger {
     _file = File(p.join(logsDir.path, name));
     _sink = _file!.openWrite();
     _write('# song: $title');
-    _write('# scrollSpeed: $scrollSpeed  fontSize: $fontSize');
+    _write('# fontSize: $fontSize');
     _write('# file: ${_file!.path}');
 
     final ok = await _speech.initialize(onStatus: _onStatus, onError: _onError);

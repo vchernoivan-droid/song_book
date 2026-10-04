@@ -19,16 +19,12 @@ class Song {
   /// Сохранённый размер шрифта просмотра.
   final int fontSize;
 
-  /// Сохранённая скорость автоскролла в строках в минуту.
-  final int scrollSpeed;
-
   const Song({
     required this.fileName,
     required this.title,
     required this.content,
     this.transpose = 0,
     this.fontSize = defaultFontSize,
-    this.scrollSpeed = 15,
   });
 
   /// Короткий текст-превью для списка.
@@ -46,7 +42,6 @@ class Song {
     String? content,
     int? transpose,
     int? fontSize,
-    int? scrollSpeed,
   }) {
     return Song(
       fileName: fileName ?? this.fileName,
@@ -54,7 +49,6 @@ class Song {
       content: content ?? this.content,
       transpose: transpose ?? this.transpose,
       fontSize: fontSize ?? this.fontSize,
-      scrollSpeed: scrollSpeed ?? this.scrollSpeed,
     );
   }
 
@@ -66,11 +60,6 @@ class Song {
     r'^#\s*font\s*:\s*(\d+)\s*$',
     caseSensitive: false,
   );
-  static final RegExp _scrollHeader = RegExp(
-    r'^#\s*scroll\s*:\s*(\d+)\s*$',
-    caseSensitive: false,
-  );
-
   /// Разбирает сырой файл: в начале может идти блок шапок.
   factory Song.fromRaw({
     required String fileName,
@@ -79,7 +68,6 @@ class Song {
   }) {
     var transpose = 0;
     var fontSize = defaultFontSize;
-    var scrollSpeed = 15;
     final lines = rawContent.split('\n');
     var i = 0;
     while (i < lines.length) {
@@ -101,15 +89,6 @@ class Song {
         i++;
         continue;
       }
-      final s = _scrollHeader.firstMatch(lines[i]);
-      if (s != null) {
-        var v = int.tryParse(s.group(1)!) ?? 15;
-        if (v > 60) v = 60;
-        if (v < 1) v = 1;
-        scrollSpeed = v;
-        i++;
-        continue;
-      }
       break;
     }
     return Song(
@@ -118,29 +97,23 @@ class Song {
       content: lines.skip(i).join('\n'),
       transpose: transpose,
       fontSize: fontSize,
-      scrollSpeed: scrollSpeed,
     );
   }
 
   /// Сырой текст для записи в хранилище — с шапками настроек.
   String get rawContent => withHeaders(
         fontSize: fontSize,
-        scrollSpeed: scrollSpeed,
         body: content,
       );
 
   /// Склейка шапок с телом.
   static String withHeaders({
     required int fontSize,
-    required int scrollSpeed,
     required String body,
   }) {
     final header = <String>[];
     if (fontSize != defaultFontSize) {
       header.add('# font: $fontSize');
-    }
-    if (scrollSpeed != 15) {
-      header.add('# scroll: $scrollSpeed');
     }
     if (header.isEmpty) return body;
     return '${header.join('\n')}\n$body';

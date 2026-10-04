@@ -18,12 +18,11 @@ Finder _cursorPaint() => find.byWidgetPredicate(
 double _cursorY(WidgetTester tester) =>
     (tester.widget<CustomPaint>(_cursorPaint()).painter as dynamic).y as double;
 
-Song _song(String content, {int scrollSpeed = 60}) => Song(
+Song _song(String content) => Song(
       fileName: 'test.txt',
       title: 'Тест',
       content: content,
       fontSize: 20,
-      scrollSpeed: scrollSpeed,
     );
 
 String _lines(int n) => List.generate(n, (i) => 'строка $i').join('\n');
@@ -52,7 +51,6 @@ void Function(String recognizedWords)? capturedOnResult;
 
 SongListenLogger _nullListenLogger({
   required String title,
-  required int scrollSpeed,
   required int fontSize,
   required String? localeId,
   required double Function() position,
@@ -66,7 +64,6 @@ class _NullListenLogger extends SongListenLogger {
   _NullListenLogger()
       : super(
           title: 'тест',
-          scrollSpeed: 0,
           fontSize: 0,
           localeId: null,
           position: () => 0,
