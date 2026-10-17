@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
 import '../services/lyric_locator.dart';
+import '../services/song_highlight.dart';
 import '../services/song_listen_logger.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
@@ -607,7 +608,19 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                   child: SingleChildScrollView(
                     controller: _scrollCtrl,
                     padding: const EdgeInsets.fromLTRB(48, 16, 16, 32),
-                    child: SelectableText(text, key: _textKey, style: mono),
+                    child: SelectableText.rich(
+                      TextSpan(
+                        style: mono,
+                        children: text == '(пусто)'
+                            ? null
+                            : songHighlightSpans(
+                                text,
+                                headerColor: songHeaderColor,
+                                chordColor: songChordColor,
+                              ),
+                      ),
+                      key: _textKey,
+                    ),
                   ),
                 ),
                 if (_autoScroll)

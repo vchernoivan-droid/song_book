@@ -1249,4 +1249,17 @@ G                  E7
       expect(propagated(once), once);
     });
   });
+
+  group('isSectionHeaderText', () {
+    test('скобки — всегда заголовок, двоеточие — только с ключевым словом', () {
+      expect(isSectionHeaderText('[Припев]'), isTrue);
+      expect(isSectionHeaderText('[Куплет 1]'), isTrue);
+      expect(isSectionHeaderText('  [Куплет]  '), isTrue);
+      expect(isSectionHeaderText('Припев:'), isTrue);
+      expect(isSectionHeaderText('Вставка:'), isFalse);
+      expect(isSectionHeaderText('Скажи:'), isFalse);
+      expect(isSectionHeaderText('[Припев] F  C'), isFalse);
+      expect(isSectionHeaderText('В лесу родилась ёлочка'), isFalse);
+    });
+  });
 }

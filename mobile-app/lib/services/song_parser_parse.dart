@@ -77,6 +77,8 @@ ParsedSong parseSong(String content) {
   return (title: title.trim(), kind: kind);
 }
 
+bool isSectionHeaderText(String line) => _parseHeader(line) != null;
+
 const Map<SectionKind, List<String>> _kindKeywords = {
   SectionKind.verse: ['куплет', 'verse'],
   SectionKind.chorus: ['припев', 'chorus', 'refrain'],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/song.dart';
 import '../models/song_defaults.dart';
+import '../services/song_highlight.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 
@@ -25,10 +26,28 @@ class SongEditorScreen extends StatefulWidget {
   State<SongEditorScreen> createState() => _SongEditorScreenState();
 }
 
+class _SongContentController extends TextEditingController {
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    return TextSpan(
+      style: style,
+      children: songHighlightSpans(
+        text,
+        headerColor: songHeaderColor,
+        chordColor: songChordColor,
+      ),
+    );
+  }
+}
+
 class _SongEditorScreenState extends State<SongEditorScreen> {
   final _storage = SongStorage();
   late final TextEditingController _titleCtrl;
-  late final TextEditingController _contentCtrl;
+  late final TextEditingController _contentCtrl = _SongContentController();
   late final String _origTitle;
   late final String _origContent;
   late final int _fontSize = widget.song?.fontSize ?? defaultFontSize;
@@ -42,7 +61,7 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
     _origTitle = initialTitle;
     _origContent = initialContent;
     _titleCtrl = TextEditingController(text: initialTitle);
-    _contentCtrl = TextEditingController(text: initialContent);
+    _contentCtrl.text = initialContent;
   }
 
   @override
