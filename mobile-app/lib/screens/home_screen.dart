@@ -7,7 +7,7 @@ import '../services/deepseek_credentials.dart';
 import '../services/song_storage.dart';
 import 'deepseek_settings_screen.dart';
 import 'deepseek_song_screen.dart';
-import 'listen_screen.dart';
+import 'remote_mic_screen.dart';
 import 'song_detail_screen.dart';
 import 'song_editor_screen.dart';
 
@@ -82,9 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openListen() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ListenScreen()),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const RemoteMicScreen()));
   }
 
   Future<void> _openEditor([Song? song]) async {
@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
-        tooltip: 'Слушать',
+        tooltip: 'Микрофон',
         onPressed: _openListen,
         child: const Icon(Icons.mic_none),
       ),

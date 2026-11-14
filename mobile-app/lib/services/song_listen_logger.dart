@@ -7,6 +7,8 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import 'song_listen_session.dart';
+
 typedef SongListenLoggerFactory = SongListenLogger Function({
   required String title,
   required int fontSize,
@@ -15,7 +17,7 @@ typedef SongListenLoggerFactory = SongListenLogger Function({
   void Function(String recognizedWords)? onResult,
 });
 
-class SongListenLogger {
+class SongListenLogger implements SongListenSession {
   SongListenLogger({
     required this.title,
     required this.fontSize,
@@ -37,6 +39,7 @@ class SongListenLogger {
   DateTime _lastLevelAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _stopping = false;
 
+  @override
   Future<bool> start() async {
     final base = await getApplicationDocumentsDirectory();
     final logsDir = Directory(p.join(base.path, 'logs'));
@@ -76,6 +79,7 @@ class SongListenLogger {
     return true;
   }
 
+  @override
   Future<void> stop() async {
     _stopping = true;
     try {
@@ -85,6 +89,7 @@ class SongListenLogger {
     await _close();
   }
 
+  @override
   void note(String tag) => _write('note: $tag');
 
   void _onStatus(String status) => _write('status: $status');

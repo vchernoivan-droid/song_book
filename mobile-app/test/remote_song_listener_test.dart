@@ -1,0 +1,181 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:song_book/services/remote_song_listener.dart';
+
+class _TestClient {
+  _TestClient(this.ws) {
+    ws.listen(
+      (dynamic data) => _onData(data),
+      onDone: _closed.complete,
+      onError: (Object e) {
+        if (!_closed.isCompleted) _closed.complete();
+      },
+      cancelOnError: true,
+    );
+  }
+
+  final WebSocket ws;
+  final Completer<void> _closed = Completer<void>();
+  final List<Map<String, Object?>> _queue = [];
+  final List<Completer<Map<String, Object?>>> _waiters = [];
+
+  bool get isClosed => _closed.isCompleted;
+
+  Future<void> get done => _closed.future;
+
+  void _onData(dynamic data) {
+    final decoded = jsonDecode(data as String);
+    if (decoded is! Map<String, Object?>) return;
+    if (_waiters.isEmpty) {
+      _queue.add(decoded);
+    } else {
+      _waiters.removeAt(0).complete(decoded);
+    }
+  }
+
+  Future<Map<String, Object?>> next() {
+    if (_queue.isNotEmpty) return Future.value(_queue.removeAt(0));
+    final waiter = Completer<Map<String, Object?>>();
+    _waiters.add(waiter);
+    return waiter.future;
+  }
+
+  void send(Map<String, Object?> message) => ws.add(jsonEncode(message));
+
+  Future<void> close() => ws.close();
+}
+
+Future<({WebSocket ws, _TestClient client})> _connect(int port) async {
+  final ws = await WebSocket.connect('ws://127.0.0.1:$port');
+  return (ws: ws, client: _TestClient(ws));
+}
+
+void main() {
+  test('start отдаёт порт и адреса, клиент получает hello', () async {
+    final addresses = Completer<(int, List<String>)>();
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      onAddresses: (port, ips) => addresses.complete((port, ips)),
+      pingInterval: null,
+    );
+    addTearDown(listener.stop);
+    expect(await listener.start(), isTrue);
+
+    final (port, ips) = await addresses.future;
+    expect(listener.port, port);
+    expect(listener.port, greaterThan(0));
+    expect(listener.ipCandidates, ips);
+
+    final c = await _connect(port);
+    addTearDown(c.client.close);
+    expect(await c.client.next(), {'type': 'hello', 'v': 1});
+  });
+
+  test('ready → listen с локалью, words → onResult', () async {
+    final connected = Completer<void>();
+    final words = Completer<String>();
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      onPeerConnected: connected.complete,
+      onResult: words.complete,
+      pingInterval: null,
+    );
+    addTearDown(listener.stop);
+    await listener.start();
+
+    final c = await _connect(listener.port!);
+    addTearDown(c.client.close);
+    await c.client.next();
+    expect(listener.hasPeer, isTrue);
+
+    c.client.send({'type': 'ready'});
+    await connected.future;
+    listener.startListening();
+    expect(await c.client.next(), {'type': 'listen', 'localeId': 'ru-RU'});
+
+    c.client.send({'type': 'words', 'text': 'ла ла ла'});
+    expect(await words.future, 'ла ла ла');
+  });
+
+  test('второе соединение получает rejected и закрывается, первое живо', () async {
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      pingInterval: null,
+    );
+    addTearDown(listener.stop);
+    await listener.start();
+
+    final first = await _connect(listener.port!);
+    addTearDown(first.client.close);
+    expect(await first.client.next(), {'type': 'hello', 'v': 1});
+
+    final second = await _connect(listener.port!);
+    expect(await second.client.next(), {'type': 'rejected'});
+    await second.client.done;
+    expect(second.client.isClosed, isTrue);
+
+    first.client.send({'type': 'ready'});
+    listener.startListening();
+    expect(await first.client.next(), {'type': 'listen', 'localeId': 'ru-RU'});
+  });
+
+  test('разрыв соединения → onPeerDisconnected', () async {
+    final disconnected = Completer<void>();
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      onPeerDisconnected: disconnected.complete,
+      pingInterval: null,
+    );
+    addTearDown(listener.stop);
+    await listener.start();
+
+    final c = await _connect(listener.port!);
+    await c.client.next();
+    await c.client.close();
+    await disconnected.future;
+    expect(listener.hasPeer, isFalse);
+  });
+
+  test('error от клиента доезжает до onError', () async {
+    final errors = Completer<String>();
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      onError: errors.complete,
+      pingInterval: null,
+    );
+    addTearDown(listener.stop);
+    await listener.start();
+
+    final c = await _connect(listener.port!);
+    addTearDown(c.client.close);
+    await c.client.next();
+    c.client.send({'type': 'error', 'message': 'микрофон не дали'});
+    expect(await errors.future, 'микрофон не дали');
+  });
+
+  test('stopListening шлёт stop, stop закрывает сервер', () async {
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      pingInterval: null,
+    );
+    await listener.start();
+    final port = listener.port!;
+
+    final c = await _connect(port);
+    await c.client.next();
+
+    listener.stopListening();
+    expect(await c.client.next(), {'type': 'stop'});
+
+    await listener.stop();
+    await c.client.done;
+    expect(c.client.isClosed, isTrue);
+    expect(
+      () => WebSocket.connect('ws://127.0.0.1:$port'),
+      throwsA(anything),
+    );
+  });
+}

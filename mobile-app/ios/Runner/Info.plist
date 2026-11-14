@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Для распознавания исполняемой песни</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Для сканирования QR-кода подключения</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Для распознавания исполняемой песни</string>
 	<key>UIApplicationSceneManifest</key>

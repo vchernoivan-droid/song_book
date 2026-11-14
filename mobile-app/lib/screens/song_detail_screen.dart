@@ -1,16 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/song.dart';
 import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
 import '../services/lyric_locator.dart';
+import '../services/remote_song_listener.dart';
 import '../services/song_highlight.dart';
 import '../services/song_listen_logger.dart';
+import '../services/song_listen_session.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 import 'song_editor_screen.dart';
@@ -22,10 +26,12 @@ import 'song_editor_screen.dart';
 class SongDetailScreen extends StatefulWidget {
   final Song song;
   final SongListenLoggerFactory? listenLoggerFactory;
+  final RemoteSongListenerFactory? remoteListenerFactory;
   const SongDetailScreen({
     super.key,
     required this.song,
     this.listenLoggerFactory,
+    this.remoteListenerFactory,
   });
 
   @override
@@ -44,7 +50,11 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   bool _autoScroll = false;
   bool _pausedByDrag = false;
   int _countdown = 0;
-  SongListenLogger? _recorder;
+  SongListenSession? _recorder;
+  RemoteSongListener? _remote;
+  int? _remotePort;
+  List<String> _remoteIps = const [];
+  bool _remotePeerConnected = false;
   LyricLocator? _locator;
   final _singerLine = ValueNotifier<int?>(null);
   int? _matchedLine;
@@ -281,14 +291,16 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     _suppressSettle = false;
   }
 
-  Future<void> _startAutoScroll() async {
+  Future<void> _startAutoScroll() => _beginCountdown(record: true);
+
+  Future<void> _beginCountdown({required bool record}) async {
     _resetSinger();
     setState(() {
       _autoScroll = true;
       _pausedByDrag = false;
       _countdown = 3;
     });
-    unawaited(_startRecording());
+    if (record) unawaited(_startRecording());
     while (_countdown > 0 && mounted && _autoScroll) {
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted || !_autoScroll) return;
@@ -296,8 +308,90 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     }
     if (!mounted || !_autoScroll) return;
     _recorder?.note('countdown-end');
+    if (!record) _remote?.startListening();
     if (_layout.tops.isEmpty) {
       _stopAutoScroll();
+    }
+  }
+
+  Future<void> _startRemoteMic() async {
+    final listener = (widget.remoteListenerFactory ?? RemoteSongListener.new)(
+      localeId: SongListenLogger.localeIdFor(_song.content),
+      onResult: _onRecognized,
+      onAddresses: (port, ips) {
+        if (!mounted) return;
+        setState(() {
+          _remotePort = port;
+          _remoteIps = ips;
+        });
+      },
+      onPeerConnected: _onRemotePeerReady,
+      onPeerDisconnected: _onRemotePeerDisconnected,
+      onError: (message) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Телефон: $message')));
+      },
+    );
+    _remote = listener;
+    _recorder = listener;
+    bool ok;
+    try {
+      ok = await listener.start();
+    } catch (e) {
+      debugPrint('remote mic start failed: $e');
+      ok = false;
+    }
+    if (!ok) {
+      if (identical(_remote, listener)) {
+        _remote = null;
+        _recorder = null;
+      }
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось открыть сервер')),
+        );
+      }
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _stopRemoteMic() async {
+    final remote = _remote;
+    _remote = null;
+    if (identical(_recorder, remote)) _recorder = null;
+    _resetSinger();
+    _pausedByDrag = false;
+    _pursuit.stop();
+    setState(() {
+      _autoScroll = false;
+      _countdown = 0;
+      _remotePeerConnected = false;
+    });
+    await remote?.stop();
+  }
+
+  void _onRemotePeerReady() {
+    if (!mounted) return;
+    setState(() => _remotePeerConnected = true);
+    if (_autoScroll) {
+      _remote?.startListening();
+    } else {
+      unawaited(_beginCountdown(record: false));
+    }
+  }
+
+  void _onRemotePeerDisconnected() {
+    if (!mounted) return;
+    setState(() => _remotePeerConnected = false);
+    if (_autoScroll) {
+      _stopAutoScroll();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Телефон отключился')),
+      );
     }
   }
 
@@ -425,8 +519,12 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     _resetSinger();
     _pausedByDrag = false;
     _pursuit.stop();
-    _recorder?.stop();
-    _recorder = null;
+    if (_remote != null) {
+      _remote?.stopListening();
+    } else {
+      _recorder?.stop();
+      _recorder = null;
+    }
     if (mounted) {
       setState(() {
         _autoScroll = false;
@@ -471,7 +569,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
         ),
         child: Row(
           children: [
-            if (_recorder != null)
+            if (_recorder is SongListenLogger)
               Padding(
                 padding: const EdgeInsets.only(left: 4, right: 2),
                 child: Tooltip(
@@ -484,14 +582,37 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                 ),
               ),
             IconButton(
+              tooltip: _remote == null
+                  ? 'Микрофон на другом устройстве'
+                  : 'Отключить удалённый микрофон',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(
+                _remote == null ? Icons.mic_external_on : Icons.mic_off,
+                color: _remote == null
+                    ? null
+                    : (_remotePeerConnected
+                          ? Colors.green.shade700
+                          : Colors.amber.shade800),
+              ),
+              onPressed: () {
+                if (_remote != null) {
+                  unawaited(_stopRemoteMic());
+                } else {
+                  unawaited(_startRemoteMic());
+                }
+              },
+            ),
+            IconButton(
               tooltip: _autoScroll ? 'Пауза' : 'Автоскролл',
               visualDensity: VisualDensity.compact,
               icon: Icon(_autoScroll ? Icons.pause : Icons.play_arrow),
               onPressed: () {
                 if (_autoScroll) {
                   _stopAutoScroll();
+                } else if (_remote != null) {
+                  unawaited(_beginCountdown(record: false));
                 } else {
-                  _startAutoScroll();
+                  unawaited(_startAutoScroll());
                 }
               },
             ),
@@ -514,6 +635,83 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                     return LinearProgressIndicator(value: value);
                   },
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRemotePanel() {
+    if (_remote == null) return const SizedBox.shrink();
+    if (!_remotePeerConnected) {
+      final qr = jsonEncode({'port': _remotePort, 'ips': _remoteIps});
+      return SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              QrImageView(
+                data: qr,
+                version: QrVersions.auto,
+                size: 132,
+                padding: const EdgeInsets.all(4),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Ожидание телефона',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Откройте на телефоне «Микрофон» и наведите камеру на QR',
+                    ),
+                    const SizedBox(height: 8),
+                    for (final ip in _remoteIps)
+                      Text(
+                        'ws://$ip:$_remotePort',
+                        style: TextStyle(
+                          fontFamily: 'Roboto Mono',
+                          fontSize: 12,
+                          color: Theme.of(context).hintColor,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.smartphone, size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _autoScroll ? 'Слушаем телефон' : 'Телефон подключен',
               ),
             ),
           ],
@@ -690,6 +888,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
               ],
             ),
           ),
+          _buildRemotePanel(),
           _buildAutoScrollBar(),
         ],
       ),
