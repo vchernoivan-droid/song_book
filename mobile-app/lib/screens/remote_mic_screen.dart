@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -54,6 +55,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _tailWords = 32;
   static const int _finalsKeep = 8;
   final List<String> _finals = [];
+  List<String> _prevWords = [];
+  double _prevConf = -1;
 
   void _log(String line) {
     final now = DateTime.now();
@@ -249,6 +252,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ),
       );
       _log('listen запущен: locale=$localeId');
+      _prevWords = [];
+      _prevConf = -1;
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
@@ -285,26 +290,89 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
+    final marks = _markerVerdicts(words, result.confidence);
+    if (result.confidence == 0.0) {
+      _storeFinal(sessionText);
+    }
     final stitched = _stitchForSend(words);
     final stitchedText = stitched.join(' ');
-    if (result.finalResult &&
-        words.isNotEmpty &&
-        (_finals.isEmpty || _finals.last != sessionText)) {
-      _finals.add(sessionText);
-      if (_finals.length > _finalsKeep) _finals.removeAt(0);
-    }
     if (mounted) setState(() => _lastPhrase = stitchedText);
     _log(
       '${result.finalResult ? 'final' : 'partial'} '
       'conf=${result.confidence.toStringAsFixed(2)} '
       'words=${stitched.length}'
-          '${stitched.length > words.length ? ' +${stitched.length - words.length}' : ''}: '
+          '${stitched.length > words.length ? ' +${stitched.length - words.length}' : ''}'
+          '${marks.isEmpty ? '' : ' $marks'}: '
           '${stitchedText.length > 60 ? stitchedText.substring(stitchedText.length - 60) : stitchedText}',
     );
     if (stitched.isNotEmpty) {
       _send({'type': 'words', 'text': stitchedText});
     }
+    _prevWords = words;
+    _prevConf = result.confidence;
     if (result.finalResult) _scheduleRestart('finalResult');
+  }
+
+  String _markerVerdicts(List<String> words, double conf) {
+    if (_prevWords.isEmpty) return '';
+    final l1 = _prevWords.length;
+    final l2 = words.length;
+    final pfx = _commonPrefixWords(_prevWords, words);
+    final hd = pfx >= min(3, min(l1, l2)) || _headInside(words, _prevWords)
+        ? 'ok'
+        : 'new';
+    final len = l2 < l1 * 0.7 && l2 < l1 - 2 ? 'new' : 'ok';
+    final cf = _prevConf != 0.0 && conf == 0.0 ? 'new' : 'ok';
+    return 'pfx=$pfx hd=$hd len=$len cf=$cf';
+  }
+
+  void _storeFinal(String text) {
+    if (_finals.isNotEmpty) {
+      final last = _finals.last;
+      if (last == text) return;
+      final a = last.toLowerCase();
+      final b = text.toLowerCase();
+      if (a.startsWith(b) || b.startsWith(a)) {
+        if (text.length > last.length) {
+          _finals[_finals.length - 1] = text;
+          _log('финал заменён: ${text.split(' ').length} слов');
+        }
+        return;
+      }
+    }
+    _finals.add(text);
+    if (_finals.length > _finalsKeep) _finals.removeAt(0);
+    _log('финал сохранён: ${text.split(' ').length} слов');
+  }
+
+  static bool _sameWord(String a, String b) {
+    final x = a.toLowerCase();
+    final y = b.toLowerCase();
+    if (x == y) return true;
+    if (x.length < 2 || y.length < 2) return false;
+    return x.startsWith(y) || y.startsWith(x);
+  }
+
+  static int _commonPrefixWords(List<String> a, List<String> b) {
+    var n = 0;
+    for (var i = 0; i < a.length && i < b.length; i++) {
+      if (!_sameWord(a[i], b[i])) break;
+      n++;
+    }
+    return n;
+  }
+
+  static bool _headInside(List<String> p2, List<String> p1) {
+    if (p2.isEmpty) return true;
+    if (p2.length < 2) {
+      return p1.any((w) => _sameWord(w, p2.first));
+    }
+    for (var i = 0; i + 1 < p1.length; i++) {
+      if (_sameWord(p1[i], p2[0]) && _sameWord(p1[i + 1], p2[1])) {
+        return true;
+      }
+    }
+    return false;
   }
 
   List<String> _stitchForSend(List<String> words) {
