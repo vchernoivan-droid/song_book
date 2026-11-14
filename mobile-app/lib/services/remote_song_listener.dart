@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'song_listen_session.dart';
 
@@ -95,6 +97,10 @@ class RemoteSongListener implements SongListenSession {
   void note(String tag) => debugPrint('REMOTE note: $tag');
 
   void _onHttpRequest(HttpRequest request) async {
+    if (request.method == 'POST' && request.uri.path == '/log') {
+      await _acceptClientLog(request);
+      return;
+    }
     if (!WebSocketTransformer.isUpgradeRequest(request)) {
       request.response.statusCode = HttpStatus.forbidden;
       await request.response.close();
@@ -124,6 +130,30 @@ class RemoteSongListener implements SongListenSession {
       onError: (Object e) => _onPeerGone(ws),
       cancelOnError: true,
     );
+  }
+
+  Future<void> _acceptClientLog(HttpRequest request) async {
+    try {
+      final body = await utf8.decoder.bind(request).join();
+      final base = await getApplicationDocumentsDirectory();
+      final logsDir = Directory(p.join(base.path, 'logs'));
+      logsDir.createSync(recursive: true);
+      final name = 'remote-mic.${_stamp(DateTime.now())}.log';
+      File(p.join(logsDir.path, name)).writeAsStringSync(body);
+      debugPrint('REMOTE client log saved: $name (${body.length} bytes)');
+      request.response.statusCode = HttpStatus.ok;
+      await request.response.close();
+    } catch (e) {
+      debugPrint('REMOTE client log save failed: $e');
+      request.response.statusCode = HttpStatus.internalServerError;
+      await request.response.close();
+    }
+  }
+
+  String _stamp(DateTime t) {
+    String p2(int v) => v.toString().padLeft(2, '0');
+    return '${p2(t.year % 100)}-${p2(t.month)}-${p2(t.day)}-'
+        '${p2(t.hour)}-${p2(t.minute)}-${p2(t.second)}';
   }
 
   void _onPeerData(WebSocket ws, dynamic data) {

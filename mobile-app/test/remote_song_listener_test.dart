@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:song_book/services/remote_song_listener.dart';
 
 class _TestClient {
@@ -197,5 +199,43 @@ void main() {
 
     listener.startListening();
     expect(await c.client.next(), {'type': 'listen', 'localeId': 'ru-RU'});
+  });
+
+  test('POST /log пишет файл в documents/logs и отвечает 200', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final docs = Directory.systemTemp.createTempSync('rmic_log_test');
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getApplicationDocumentsDirectory') {
+            return docs.path;
+          }
+          return null;
+        });
+
+    final listener = RemoteSongListener(localeId: 'ru-RU', pingInterval: null);
+    await listener.start();
+
+    final body = '11:22:33.444 status: listening';
+    final socket = await Socket.connect('127.0.0.1', listener.port!);
+    socket.write(
+      'POST /log HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+      'Content-Type: text/plain\r\nContent-Length: ${body.length}\r\n'
+      'Connection: close\r\n\r\n$body',
+    );
+    final response = await socket
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .join();
+    expect(response, contains(' 200 '));
+
+    final logsDir = Directory(p.join(docs.path, 'logs'));
+    final files = logsDir.listSync();
+    expect(files, hasLength(1));
+    expect(
+      (files.single as File).readAsStringSync(),
+      contains('status: listening'),
+    );
+    await listener.stop();
   });
 }

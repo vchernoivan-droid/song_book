@@ -45,6 +45,23 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   WebSocket? _ws;
   StreamSubscription<dynamic>? _wsSub;
   bool _closed = false;
+  String? _serverUrl;
+
+  static const int _logLimit = 500;
+  final List<String> _logLines = [];
+
+  void _log(String line) {
+    final now = DateTime.now();
+    String p2(int v) => v.toString().padLeft(2, '0');
+    String p3(int v) => v.toString().padLeft(3, '0');
+    final ts =
+        '${p2(now.hour)}:${p2(now.minute)}:${p2(now.second)}.${p3(now.millisecond)}';
+    _logLines.add('$ts $line');
+    if (_logLines.length > _logLimit) {
+      _logLines.removeRange(0, _logLines.length - _logLimit);
+    }
+    debugPrint('RMIC $ts $line');
+  }
 
   @override
   void dispose() {
@@ -88,6 +105,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _connect(List<String> urls) async {
+    _log('connect: пробуем ${urls.length} адрес(ов)');
     setState(() {
       _phase = _Phase.connecting;
       _status = 'Подключаемся…';
@@ -111,7 +129,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     WebSocket? ws;
     try {
       ws = await WebSocket.connect(url).timeout(const Duration(seconds: 2));
-    } catch (_) {
+      _log('connect ok: $url');
+    } catch (e) {
+      _log('connect fail: $url ($e)');
       return null;
     }
     final hello = Completer<Object?>();
@@ -139,7 +159,11 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       final raw = await hello.future.timeout(const Duration(seconds: 2));
       final decoded = jsonDecode(raw as String);
       if (decoded is Map<String, Object?> && decoded['type'] == 'hello') {
-        if (decoded['v'] == _protocolVersion) return ws;
+        if (decoded['v'] == _protocolVersion) {
+          _log('hello v${decoded['v']}');
+          return ws;
+        }
+        _log('hello версия не подходит: v${decoded['v']}');
         if (mounted) {
           setState(() => _status = 'Версия не подходит — обновите приложение');
         }
@@ -150,7 +174,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _afterHello(WebSocket ws, String url) async {
+    _serverUrl = url;
     final speechOk = await _initSpeech();
+    _log('speech init: $speechOk');
     if (_closed || !mounted) return;
     if (!speechOk) {
       _send({'type': 'error', 'message': 'Микрофон недоступен'});
@@ -162,6 +188,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       return;
     }
     _send({'type': 'ready'});
+    _log('ready отправлен');
     setState(() {
       _phase = _Phase.connected;
       _status = 'Подключено: $url';
@@ -192,8 +219,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     if (decoded is! Map<String, Object?>) return;
     switch (decoded['type']) {
       case 'listen':
+        _log('listen от сервера: locale=${decoded['localeId']}');
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
+        _log('stop от сервера');
         unawaited(_stopListening());
     }
   }
@@ -210,8 +239,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
           localeId: localeId,
         ),
       );
+      _log('listen запущен: locale=$localeId');
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
+      _log('listen упал: $e');
       _send({'type': 'error', 'message': 'Не удалось начать прослушивание'});
       if (mounted) setState(() => _sttStatus = 'не запустилось: $e');
     }
@@ -239,11 +270,17 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       words.removeRange(0, words.length - tailWords);
     }
     if (mounted) setState(() => _lastPhrase = result.recognizedWords);
+    _log(
+      '${result.finalResult ? 'final' : 'partial'} '
+      'conf=${result.confidence.toStringAsFixed(2)} '
+      'words=${words.length}: ${result.recognizedWords.length > 60 ? result.recognizedWords.substring(result.recognizedWords.length - 60) : result.recognizedWords}',
+    );
     if (words.isEmpty) return;
     _send({'type': 'words', 'text': words.join(' ')});
   }
 
   void _onSpeechStatus(String status) {
+    _log('status: $status');
     if (mounted) setState(() => _sttStatus = status);
     final shouldRestart =
         _listeningWanted &&
@@ -257,12 +294,14 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   void _onSpeechError(SpeechRecognitionError error) {
+    _log('stt error: ${error.errorMsg}');
     if (mounted) setState(() => _sttStatus = error.errorMsg);
     _send({'type': 'error', 'message': error.errorMsg});
   }
 
   void _onServerClosed() {
     if (_closed) return;
+    _log('сервер закрыл соединение');
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
@@ -297,6 +336,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _disconnect() async {
+    _log('disconnect');
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
@@ -309,6 +349,32 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       _sttStatus = '';
       _lastPhrase = '';
     });
+  }
+
+  Future<void> _sendLog() async {
+    final serverUrl = _serverUrl;
+    if (serverUrl == null || _logLines.isEmpty) return;
+    final logUrl = '${serverUrl.replaceFirst('ws://', 'http://')}/log';
+    _log('отправка лога: $logUrl');
+    if (mounted) setState(() => _status = 'Отправляем лог…');
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(Uri.parse(logUrl));
+      request.headers.contentType = ContentType.text;
+      request.add(utf8.encode(_logLines.join('\n')));
+      final response = await request.close();
+      await response.drain<void>();
+      client.close();
+      if (!mounted) return;
+      setState(() {
+        _status = response.statusCode == 200
+            ? 'Лог отправлен'
+            : 'Лог не принят: ${response.statusCode}';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _status = 'Лог не ушёл: $e');
+    }
   }
 
   @override
@@ -380,6 +446,15 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                           ),
                         ),
                       ),
+                    if (_logLines.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => unawaited(_sendLog()),
+                          icon: const Icon(Icons.upload_file, size: 18),
+                          label: const Text('Отправить лог'),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -445,10 +520,21 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: FilledButton.icon(
-                  onPressed: () => unawaited(_disconnect()),
-                  icon: const Icon(Icons.mic_off),
-                  label: const Text('Отключиться'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => unawaited(_disconnect()),
+                      icon: const Icon(Icons.mic_off),
+                      label: const Text('Отключиться'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_sendLog()),
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Отправить лог'),
+                    ),
+                  ],
                 ),
               ),
             ],
