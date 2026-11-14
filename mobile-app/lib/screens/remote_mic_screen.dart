@@ -19,15 +19,29 @@ class RemoteMicScreen extends StatefulWidget {
 
 class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _protocolVersion = 1;
-  static const int _tailWords = 32;
+  static const int _phraseTailChars = 500;
+
+  String _phraseView() {
+    if (_lastPhrase.length <= _phraseTailChars) {
+      return _lastPhrase.isEmpty ? '…' : _lastPhrase;
+    }
+    var tail = _lastPhrase.substring(_lastPhrase.length - _phraseTailChars);
+    final wordStart = tail.indexOf(RegExp(r'\s'));
+    if (wordStart >= 0) tail = tail.substring(wordStart + 1);
+    return '… $tail';
+  }
 
   _Phase _phase = _Phase.idle;
   String _status = '';
+  String _sttStatus = '';
   String _lastPhrase = '';
   final _manualCtrl = TextEditingController();
 
   final _speech = SpeechToText();
   bool _speechReady = false;
+  bool _listeningWanted = false;
+  String? _activeLocaleId;
+  Timer? _restartTimer;
   WebSocket? _ws;
   StreamSubscription<dynamic>? _wsSub;
   bool _closed = false;
@@ -35,6 +49,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   @override
   void dispose() {
     _closed = true;
+    _listeningWanted = false;
+    _restartTimer?.cancel();
     _wsSub?.cancel();
     _wsSub = null;
     _ws?.close();
@@ -183,6 +199,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _startListening(String? localeId) async {
+    _activeLocaleId = localeId;
+    _listeningWanted = true;
     try {
       await _speech.listen(
         onResult: _onSpeechResult,
@@ -193,12 +211,16 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ),
       );
       if (mounted) setState(() => _phase = _Phase.listening);
-    } catch (_) {
+    } catch (e) {
       _send({'type': 'error', 'message': 'Не удалось начать прослушивание'});
+      if (mounted) setState(() => _sttStatus = 'не запустилось: $e');
     }
   }
 
   Future<void> _stopListening() async {
+    _listeningWanted = false;
+    _restartTimer?.cancel();
+    _restartTimer = null;
     try {
       await _speech.stop();
     } catch (_) {}
@@ -212,8 +234,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
-    if (words.length > _tailWords) {
-      words.removeRange(0, words.length - _tailWords);
+    const tailWords = 32;
+    if (words.length > tailWords) {
+      words.removeRange(0, words.length - tailWords);
     }
     if (mounted) setState(() => _lastPhrase = result.recognizedWords);
     if (words.isEmpty) return;
@@ -221,17 +244,28 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   void _onSpeechStatus(String status) {
-    if (status == 'notListening' && mounted && _phase == _Phase.listening) {
-      setState(() => _phase = _Phase.connected);
-    }
+    if (mounted) setState(() => _sttStatus = status);
+    final shouldRestart =
+        _listeningWanted &&
+        (status == 'notListening' || status == SpeechToText.doneStatus);
+    if (!shouldRestart) return;
+    _restartTimer?.cancel();
+    _restartTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!_listeningWanted || _ws == null || _closed) return;
+      unawaited(_startListening(_activeLocaleId));
+    });
   }
 
   void _onSpeechError(SpeechRecognitionError error) {
+    if (mounted) setState(() => _sttStatus = error.errorMsg);
     _send({'type': 'error', 'message': error.errorMsg});
   }
 
   void _onServerClosed() {
     if (_closed) return;
+    _listeningWanted = false;
+    _restartTimer?.cancel();
+    _restartTimer = null;
     _ws = null;
     _speech.stop();
     if (!mounted) return;
@@ -263,12 +297,16 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _disconnect() async {
+    _listeningWanted = false;
+    _restartTimer?.cancel();
+    _restartTimer = null;
     await _speech.stop();
     await _dropSocket();
     if (!mounted) return;
     setState(() {
       _phase = _Phase.idle;
       _status = '';
+      _sttStatus = '';
       _lastPhrase = '';
     });
   }
@@ -367,25 +405,44 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                     : 'Подключено, ждём запуск песни',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                  ),
+              if (_sttStatus.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    _lastPhrase.isEmpty ? '…' : _lastPhrase,
-                    style: const TextStyle(fontFamily: 'Roboto Mono'),
+                    _sttStatus,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).hintColor,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                    ),
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Text(
+                        _phraseView(),
+                        style: const TextStyle(
+                          fontFamily: 'Roboto Mono',
+                          fontSize: 16,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: FilledButton.icon(

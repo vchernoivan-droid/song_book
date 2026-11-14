@@ -178,4 +178,24 @@ void main() {
       throwsA(anything),
     );
   });
+
+  test('listen уходит после паузы-отсчёта, pingInterval не мешает', () async {
+    final connected = Completer<void>();
+    final listener = RemoteSongListener(
+      localeId: 'ru-RU',
+      onPeerConnected: connected.complete,
+    );
+    addTearDown(listener.stop);
+    await listener.start();
+
+    final c = await _connect(listener.port!);
+    addTearDown(c.client.close);
+    await c.client.next();
+    c.client.send({'type': 'ready'});
+    await connected.future;
+    await Future<void>.delayed(const Duration(seconds: 4));
+
+    listener.startListening();
+    expect(await c.client.next(), {'type': 'listen', 'localeId': 'ru-RU'});
+  });
 }
