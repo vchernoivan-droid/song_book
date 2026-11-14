@@ -238,6 +238,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
           listenMode: ListenMode.dictation,
           localeId: localeId,
           pauseFor: const Duration(seconds: 10),
+          onDevice: true,
         ),
       );
       _log('listen запущен: locale=$localeId');
