@@ -51,8 +51,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _logLimit = 500;
   final List<String> _logLines = [];
   static const int _transcriptWords = 64;
+  static const int _bridgeWords = 8;
   String _transcript = '';
-  String _sessionPrefix = '';
 
   void _log(String line) {
     final now = DateTime.now();
@@ -226,7 +226,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       case 'listen':
         _log('listen от сервера: locale=${decoded['localeId']}');
         _transcript = '';
-        _sessionPrefix = '';
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -249,7 +248,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ),
       );
       _log('listen запущен: locale=$localeId');
-      _sessionPrefix = _transcript.isEmpty ? '' : '$_transcript ';
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
@@ -274,10 +272,21 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   void _onSpeechResult(SpeechRecognitionResult result) {
     final sessionText = result.recognizedWords.trim();
-    if (sessionText.isNotEmpty) {
-      _transcript = '$_sessionPrefix$sessionText';
-      _trimTranscript();
+    if (sessionText.isEmpty) {
+      _log(
+        '${result.finalResult ? 'final' : 'partial'} '
+        'conf=${result.confidence.toStringAsFixed(2)} words=0',
+      );
+      if (result.finalResult) _scheduleRestart('finalResult');
+      return;
     }
+    final sessionWords = sessionText
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    final bridged = sessionWords.length < _bridgeWords && _transcript.isNotEmpty;
+    _transcript = bridged ? '$_transcript $sessionText' : sessionText;
+    _trimTranscript();
     final words = _transcript
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
@@ -290,7 +299,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _log(
       '${result.finalResult ? 'final' : 'partial'} '
       'conf=${result.confidence.toStringAsFixed(2)} '
-      'words=${words.length}: ${_transcript.length > 60 ? _transcript.substring(_transcript.length - 60) : _transcript}',
+      'words=${words.length}${bridged ? ' bridge' : ''}: '
+          '${_transcript.length > 60 ? _transcript.substring(_transcript.length - 60) : _transcript}',
     );
     if (words.isNotEmpty) {
       _send({'type': 'words', 'text': words.join(' ')});
