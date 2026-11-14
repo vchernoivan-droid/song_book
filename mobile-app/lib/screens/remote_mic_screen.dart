@@ -50,6 +50,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   static const int _logLimit = 500;
   final List<String> _logLines = [];
+  static const int _transcriptWords = 64;
+  String _transcript = '';
+  String _sessionPrefix = '';
 
   void _log(String line) {
     final now = DateTime.now();
@@ -222,6 +225,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     switch (decoded['type']) {
       case 'listen':
         _log('listen от сервера: locale=${decoded['localeId']}');
+        _transcript = '';
+        _sessionPrefix = '';
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -244,6 +249,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ),
       );
       _log('listen запущен: locale=$localeId');
+      _sessionPrefix = _transcript.isEmpty ? '' : '$_transcript ';
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
@@ -267,7 +273,12 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {
-    final words = result.recognizedWords
+    final sessionText = result.recognizedWords.trim();
+    if (sessionText.isNotEmpty) {
+      _transcript = '$_sessionPrefix$sessionText';
+      _trimTranscript();
+    }
+    final words = _transcript
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
@@ -275,16 +286,27 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     if (words.length > tailWords) {
       words.removeRange(0, words.length - tailWords);
     }
-    if (mounted) setState(() => _lastPhrase = result.recognizedWords);
+    if (mounted) setState(() => _lastPhrase = _transcript);
     _log(
       '${result.finalResult ? 'final' : 'partial'} '
       'conf=${result.confidence.toStringAsFixed(2)} '
-      'words=${words.length}: ${result.recognizedWords.length > 60 ? result.recognizedWords.substring(result.recognizedWords.length - 60) : result.recognizedWords}',
+      'words=${words.length}: ${_transcript.length > 60 ? _transcript.substring(_transcript.length - 60) : _transcript}',
     );
     if (words.isNotEmpty) {
       _send({'type': 'words', 'text': words.join(' ')});
     }
     if (result.finalResult) _scheduleRestart('finalResult');
+  }
+
+  void _trimTranscript() {
+    final words = _transcript
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (words.length <= _transcriptWords) return;
+    _transcript = words
+        .sublist(words.length - _transcriptWords)
+        .join(' ');
   }
 
   void _scheduleRestart(String reason) {

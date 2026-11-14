@@ -431,7 +431,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   void _onRecognized(String words) {
     _silenceTimer?.cancel();
-    _silenceTimer = Timer(const Duration(seconds: 15), _onSilenceTimeout);
+    _silenceTimer = Timer(const Duration(minutes: 1), _onSilenceTimeout);
     final current = _matchedLine;
     final line =
         _locator?.locate(LyricLocator.keysOf(words), previousLine: current);

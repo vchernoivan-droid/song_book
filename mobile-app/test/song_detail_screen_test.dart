@@ -511,12 +511,14 @@ void main() {
       expect(_cursorPaint(), findsOneWidget);
     });
 
-    testWidgets('тишина 15 секунд сбрасывает стрелку', (tester) async {
+    testWidgets('тишина 60 секунд сбрасывает стрелку', (tester) async {
       await startAutoScroll(tester, _distinctLines());
       capturedOnResult!('вторая строка здесь');
       await tester.pump();
       expect(_cursorPaint(), findsOneWidget);
       await tester.pump(const Duration(seconds: 16));
+      expect(_cursorPaint(), findsOneWidget);
+      await tester.pump(const Duration(seconds: 45));
       expect(_cursorPaint(), findsNothing);
     });
 
