@@ -297,6 +297,17 @@ e|-------0---------------|
           SectionKind.solo);
     });
 
+    test('словарь: вставка и брейк — solo, переход — bridge, запев — verse', () {
+      expect(parseSong('[Вставка]\nтекст\n').sections.single.kind,
+          SectionKind.solo);
+      expect(parseSong('Брейк:\nтекст\n').sections.single.kind,
+          SectionKind.solo);
+      expect(parseSong('Переход:\nтекст\n').sections.single.kind,
+          SectionKind.bridge);
+      expect(parseSong('[Запев]\nтекст\n').sections.single.kind,
+          SectionKind.verse);
+    });
+
     test('двоеточие без ключевого слова — обычная строка текста', () {
       final s = parseSong('Бла-бла:\nтекст\n').sections.single;
       expect(s.title, isNull);
@@ -909,6 +920,29 @@ e|-------0---------------|
       expect(renderSong(parseSong('[Куплет]\nстрока1\n\n\n\nстрока2\n')),
           '[Куплет]\nстрока1\n\nстрока2\n');
     });
+
+    test('заголовок в середине блока режет секцию', () {
+      final song =
+          parseSong('[Куплет 1]\nстрока\n[Припев]\nстрока припева\n');
+      expect(song.sections, hasLength(2));
+      expect(song.sections[0].kind, SectionKind.verse);
+      expect(song.sections[0].lines, hasLength(1));
+      expect(song.sections[1].title, 'Припев');
+      expect(song.sections[1].kind, SectionKind.chorus);
+      expect(song.sections[1].lines, hasLength(1));
+    });
+
+    test('[Am] в начале блока — аккордная строка, блок приклеивается строфой',
+        () {
+      final song = parseSong('[Куплет 1]\nстрока\n\n[Am]\nстрока два\n');
+      final s = song.sections.single;
+      expect(s.kind, SectionKind.verse);
+      expect(s.lines, hasLength(2));
+      expect(s.lines[1].stanzaStart, isTrue);
+      final first = s.lines[1].tokens.first;
+      expect(first, isA<SyllableToken>());
+      expect((first as SyllableToken).chord, isNotNull);
+    });
   });
 
   group('propagateChords', () {
@@ -1248,17 +1282,114 @@ G                  E7
       final once = propagated(input);
       expect(propagated(once), once);
     });
+
+    test('кейс «Любовь и разлука»: аккорды не пересекают границу строфы', () {
+      const input = '''
+[Куплет 1]
+Am      Dm
+куплета строка
+G       C
+куплета строка
+
+F       C
+припева строка один
+G       C
+припева строка два
+Am      Dm
+припева строка три
+G       C
+припева строка четыре
+F       C
+припева строка пять
+G       C
+припева строка шесть
+
+[Куплет 2]
+куплета строка
+
+припева строка один
+припева строка два
+припева строка три
+припева строка четыре
+''';
+      const expected = '''
+[Куплет 1]
+Am      Dm
+куплета строка
+G       C
+куплета строка
+
+F       C
+припева строка один
+G       C
+припева строка два
+Am      Dm
+припева строка три
+G       C
+припева строка четыре
+F       C
+припева строка пять
+G       C
+припева строка шесть
+
+[Куплет 2]
+Am      Dm
+куплета строка
+
+F       C
+припева строка один
+G       C
+припева строка два
+Am      Dm
+припева строка три
+G       C
+припева строка четыре
+''';
+      final once = propagated(input);
+      expect(once, renderSong(parseSong(expected)));
+      expect(propagated(once), once);
+    });
+
+    test('пустой припев между куплетами не мешает размножению', () {
+      const input = '''
+[Куплет 1]
+Am
+строка
+
+[Припев]
+
+[Куплет 2]
+строка
+''';
+      const expected = '''
+[Куплет 1]
+Am
+строка
+
+[Припев]
+
+[Куплет 2]
+Am
+строка
+''';
+      expect(propagated(input), renderSong(parseSong(expected)));
+    });
   });
 
   group('isSectionHeaderText', () {
-    test('скобки — всегда заголовок, двоеточие — только с ключевым словом', () {
+    test('аккордная строка — не заголовок, двоеточие — с ключевым словом', () {
       expect(isSectionHeaderText('[Припев]'), isTrue);
       expect(isSectionHeaderText('[Куплет 1]'), isTrue);
       expect(isSectionHeaderText('  [Куплет]  '), isTrue);
       expect(isSectionHeaderText('Припев:'), isTrue);
-      expect(isSectionHeaderText('Вставка:'), isFalse);
+      expect(isSectionHeaderText('Вставка:'), isTrue);
+      expect(isSectionHeaderText('Запев:'), isTrue);
+      expect(isSectionHeaderText('Переход:'), isTrue);
+      expect(isSectionHeaderText('Брейк:'), isTrue);
+      expect(isSectionHeaderText('Модуция:'), isFalse);
       expect(isSectionHeaderText('Скажи:'), isFalse);
       expect(isSectionHeaderText('[Припев] F  C'), isFalse);
+      expect(isSectionHeaderText('[Am]'), isFalse);
       expect(isSectionHeaderText('В лесу родилась ёлочка'), isFalse);
     });
   });

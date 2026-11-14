@@ -23,9 +23,9 @@ ParsedSong parseSong(String content) {
   }
   flush();
 
-  // Блок без заголовка — строфа предыдущей секции, не новая секция.
   final sections = <Section>[];
-  for (final b in blocks) {
+
+  void addBlock(List<String> b) {
     final header = _parseHeader(b.first);
     final blockLines = _parseLines(header == null ? b : b.sublist(1), tonic);
     if (header == null && sections.isNotEmpty) {
@@ -49,6 +49,17 @@ ParsedSong parseSong(String content) {
       ));
     }
   }
+
+  for (final b in blocks) {
+    final segments = <List<String>>[[]];
+    for (var i = 0; i < b.length; i++) {
+      if (i > 0 && _parseHeader(b[i]) != null) segments.add([]);
+      segments.last.add(b[i]);
+    }
+    for (final seg in segments) {
+      addBlock(seg);
+    }
+  }
   return ParsedSong(sections,
       tonic: tonic, tonicName: first?.name ?? 'C');
 }
@@ -63,8 +74,8 @@ ParsedSong parseSong(String content) {
   return null;
 }
 
-// «[…]» всегда заголовок; «…:» — только если внутри ключевое слово.
 ({String title, SectionKind kind})? _parseHeader(String line) {
+  if (isChordLineText(line)) return null;
   final bracket = RegExp(r'^\s*\[([^\]]+)\]\s*$').firstMatch(line);
   final colon =
       bracket == null ? RegExp(r'^\s*([^:]{1,60}):\s*$').firstMatch(line) : null;
@@ -80,12 +91,20 @@ ParsedSong parseSong(String content) {
 bool isSectionHeaderText(String line) => _parseHeader(line) != null;
 
 const Map<SectionKind, List<String>> _kindKeywords = {
-  SectionKind.verse: ['куплет', 'verse'],
+  SectionKind.verse: ['куплет', 'verse', 'запев'],
   SectionKind.chorus: ['припев', 'chorus', 'refrain'],
-  SectionKind.bridge: ['бридж', 'мост', 'bridge'],
+  SectionKind.bridge: ['бридж', 'мост', 'переход', 'bridge'],
   SectionKind.intro: ['вступление', 'интро', 'intro'],
   SectionKind.outro: ['концовка', 'кода', 'outro', 'coda'],
-  SectionKind.solo: ['соло', 'проигрыш', 'solo', 'interlude', 'instrumental'],
+  SectionKind.solo: [
+    'соло',
+    'проигрыш',
+    'вставка',
+    'брейк',
+    'solo',
+    'interlude',
+    'instrumental',
+  ],
 };
 
 SectionKind _kindOf(String title) {

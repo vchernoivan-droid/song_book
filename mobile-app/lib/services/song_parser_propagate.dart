@@ -43,16 +43,30 @@ bool _lineHasChords(Line line) =>
     line.tokens.any((t) => t is SyllableToken && t.chord != null);
 
 Section _applyTemplate(Section template, Section target) {
-  return Section(
-    title: target.title,
-    kind: target.kind,
-    lines: [
-      for (var i = 0; i < target.lines.length; i++)
-        i < template.lines.length
-            ? _applyLine(template.lines[i], target.lines[i])
-            : target.lines[i],
-    ],
-  );
+  final templateStanzas = _stanzasOf(template.lines);
+  final targetStanzas = _stanzasOf(target.lines);
+  final lines = <Line>[];
+  for (var t = 0; t < targetStanzas.length; t++) {
+    var stanza = t < templateStanzas.length ? templateStanzas[t] : null;
+    var consumed = 0;
+    for (final line in targetStanzas[t]) {
+      if (stanza != null && consumed == stanza.length) {
+        stanza = ++t < templateStanzas.length ? templateStanzas[t] : null;
+        consumed = 0;
+      }
+      lines.add(stanza == null ? line : _applyLine(stanza[consumed++], line));
+    }
+  }
+  return Section(title: target.title, kind: target.kind, lines: lines);
+}
+
+List<List<Line>> _stanzasOf(List<Line> lines) {
+  final stanzas = <List<Line>>[[]];
+  for (final line in lines) {
+    if (line.stanzaStart && stanzas.last.isNotEmpty) stanzas.add([]);
+    stanzas.last.add(line);
+  }
+  return stanzas;
 }
 
 Line _applyLine(Line template, Line target) {
@@ -93,7 +107,7 @@ Line _applyLine(Line template, Line target) {
     }
   }
   tokens.addAll(layer.tail);
-  return Line(tokens);
+  return Line(tokens, stanzaStart: target.stanzaStart);
 }
 
 _LineLayer _layerOf(Line line) {

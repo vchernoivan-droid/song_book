@@ -19,9 +19,8 @@ List<InlineSpan> songHighlightSpans(
   final lines = text.split('\n');
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
-    final startsBlock = i == 0 || lines[i - 1].trim().isEmpty;
     if (line.isNotEmpty) {
-      if (startsBlock && isSectionHeaderText(line)) {
+      if (isSectionHeaderText(line)) {
         spans.add(TextSpan(text: line, style: TextStyle(color: headerColor)));
       } else if (isChordLineText(line)) {
         var cursor = 0;
