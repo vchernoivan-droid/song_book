@@ -275,22 +275,36 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       'conf=${result.confidence.toStringAsFixed(2)} '
       'words=${words.length}: ${result.recognizedWords.length > 60 ? result.recognizedWords.substring(result.recognizedWords.length - 60) : result.recognizedWords}',
     );
-    if (words.isEmpty) return;
-    _send({'type': 'words', 'text': words.join(' ')});
+    if (words.isNotEmpty) {
+      _send({'type': 'words', 'text': words.join(' ')});
+    }
+    if (result.finalResult) _scheduleRestart('finalResult');
+  }
+
+  void _scheduleRestart(String reason) {
+    if (!_listeningWanted || _ws == null || _closed) return;
+    _log('рестарт прослушивания: $reason');
+    _restartTimer?.cancel();
+    _restartTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!_listeningWanted || _ws == null || _closed) return;
+      unawaited(_restartListening());
+    });
+  }
+
+  Future<void> _restartListening() async {
+    try {
+      await _speech.stop();
+    } catch (_) {}
+    if (!_listeningWanted || _ws == null || _closed) return;
+    await _startListening(_activeLocaleId);
   }
 
   void _onSpeechStatus(String status) {
     _log('status: $status');
     if (mounted) setState(() => _sttStatus = status);
-    final shouldRestart =
-        _listeningWanted &&
-        (status == 'notListening' || status == SpeechToText.doneStatus);
-    if (!shouldRestart) return;
-    _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 300), () {
-      if (!_listeningWanted || _ws == null || _closed) return;
-      unawaited(_startListening(_activeLocaleId));
-    });
+    if (status == 'notListening' || status == SpeechToText.doneStatus) {
+      _scheduleRestart('status: $status');
+    }
   }
 
   void _onSpeechError(SpeechRecognitionError error) {
