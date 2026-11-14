@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _Phase { idle, connecting, connected, listening }
 
@@ -68,6 +69,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _closed = true;
     _listeningWanted = false;
     _restartTimer?.cancel();
+    WakelockPlus.disable();
     _wsSub?.cancel();
     _wsSub = null;
     _ws?.close();
@@ -242,6 +244,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ),
       );
       _log('listen запущен: locale=$localeId');
+      unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
       _log('listen упал: $e');
@@ -254,6 +257,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
+    unawaited(WakelockPlus.disable());
     try {
       await _speech.stop();
     } catch (_) {}
@@ -321,6 +325,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
+    unawaited(WakelockPlus.disable());
     _ws = null;
     _speech.stop();
     if (!mounted) return;
@@ -356,6 +361,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
+    unawaited(WakelockPlus.disable());
     await _speech.stop();
     await _dropSocket();
     if (!mounted) return;
