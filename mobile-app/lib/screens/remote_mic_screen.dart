@@ -50,9 +50,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   static const int _logLimit = 500;
   final List<String> _logLines = [];
-  static const int _transcriptWords = 64;
-  static const int _bridgeWords = 8;
-  String _transcript = '';
+  static const int _minSendWords = 8;
+  static const int _tailWords = 32;
+  static const int _finalsKeep = 8;
+  final List<String> _finals = [];
 
   void _log(String line) {
     final now = DateTime.now();
@@ -225,7 +226,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     switch (decoded['type']) {
       case 'listen':
         _log('listen от сервера: locale=${decoded['localeId']}');
-        _transcript = '';
+        _finals.clear();
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -280,43 +281,46 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       if (result.finalResult) _scheduleRestart('finalResult');
       return;
     }
-    final sessionWords = sessionText
+    final words = sessionText
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
         .toList();
-    final bridged = sessionWords.length < _bridgeWords && _transcript.isNotEmpty;
-    _transcript = bridged ? '$_transcript $sessionText' : sessionText;
-    _trimTranscript();
-    final words = _transcript
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toList();
-    const tailWords = 32;
-    if (words.length > tailWords) {
-      words.removeRange(0, words.length - tailWords);
+    final stitched = _stitchForSend(words);
+    final stitchedText = stitched.join(' ');
+    if (result.finalResult &&
+        words.isNotEmpty &&
+        (_finals.isEmpty || _finals.last != sessionText)) {
+      _finals.add(sessionText);
+      if (_finals.length > _finalsKeep) _finals.removeAt(0);
     }
-    if (mounted) setState(() => _lastPhrase = _transcript);
+    if (mounted) setState(() => _lastPhrase = stitchedText);
     _log(
       '${result.finalResult ? 'final' : 'partial'} '
       'conf=${result.confidence.toStringAsFixed(2)} '
-      'words=${words.length}${bridged ? ' bridge' : ''}: '
-          '${_transcript.length > 60 ? _transcript.substring(_transcript.length - 60) : _transcript}',
+      'words=${stitched.length}'
+          '${stitched.length > words.length ? ' +${stitched.length - words.length}' : ''}: '
+          '${stitchedText.length > 60 ? stitchedText.substring(stitchedText.length - 60) : stitchedText}',
     );
-    if (words.isNotEmpty) {
-      _send({'type': 'words', 'text': words.join(' ')});
+    if (stitched.isNotEmpty) {
+      _send({'type': 'words', 'text': stitchedText});
     }
     if (result.finalResult) _scheduleRestart('finalResult');
   }
 
-  void _trimTranscript() {
-    final words = _transcript
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toList();
-    if (words.length <= _transcriptWords) return;
-    _transcript = words
-        .sublist(words.length - _transcriptWords)
-        .join(' ');
+  List<String> _stitchForSend(List<String> words) {
+    final stitched = List<String>.of(words);
+    for (var i = _finals.length - 1;
+        i >= 0 && stitched.length < _minSendWords;
+        i--) {
+      stitched.insertAll(
+        0,
+        _finals[i].split(RegExp(r'\s+')).where((w) => w.isNotEmpty),
+      );
+    }
+    if (stitched.length > _tailWords) {
+      stitched.removeRange(0, stitched.length - _tailWords);
+    }
+    return stitched;
   }
 
   void _scheduleRestart(String reason) {
