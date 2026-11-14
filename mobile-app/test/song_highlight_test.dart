@@ -52,6 +52,11 @@ void main() {
     expect(flat(text), [('Am I wrong', null)]);
   });
 
+  test('одиночная А в реплике не подсвечивается аккордом', () {
+    const text = 'Я скажу: "А что, не так уж я и страшен"';
+    expect(flat(text).map((t) => t.$2), everyElement(isNull));
+  });
+
   test('пометки аккордной строки не подсвечиваются', () {
     const text = 'Am  2x';
     expect(flat(text), [

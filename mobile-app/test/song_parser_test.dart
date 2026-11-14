@@ -73,6 +73,33 @@ void main() {
       expect(lexKinds('Am I wrong'), ['chord:A', 'word:I', 'word:wrong']);
     });
 
+    test('одиночная буква в прозе — слово, не аккорд', () {
+      expect(isChordLineText('Я скажу: "А что, не так уж я и страшен"'),
+          isFalse);
+      expect(isChordLineText('— А что, не так уж я и страшен'), isFalse);
+      expect(isChordLineText('Вот А'), isFalse);
+      expect(isChordLineText('Он ответил (А что)'), isFalse);
+      expect(isChordLineText('Вот конец. А что дальше'), isFalse);
+      expect(isChordLineText('Am I wrong'), isFalse);
+    });
+
+    test('одиночная буква остаётся аккордом после метки и аккордов', () {
+      expect(isChordLineText('Вступление: Am'), isTrue);
+      expect(isChordLineText('Am  A  Dm'), isTrue);
+      expect(isChordLineText('Dm | A'), isTrue);
+      expect(isChordLineText('Am ~ A'), isTrue);
+      expect(isChordLineText('[Am]'), isTrue);
+      expect(isChordLineText('A'), isTrue);
+    });
+
+    test('реплика с одиночной А — текст, транспонирование не трогает', () {
+      const line = 'Я скажу: "А что, не так уж я и страшен"';
+      final song = parseSong('[Куплет 1]\n$line\n');
+      expect(chordNames(song), isEmpty);
+      final rendered = renderSong(song);
+      expect(renderSong(song.transposed(2)), rendered);
+    });
+
     test('кириллические двойники — аккорды с нормализованным корнем', () {
       expect(lexKinds('С7 Am'), ['chord:C', 'chord:A']);
     });

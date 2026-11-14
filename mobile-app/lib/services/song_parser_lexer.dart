@@ -122,20 +122,30 @@ PitchChord _chordFromMatch(Match m) => PitchChord(
           : _pitchOf(_normalizeRootLetter(m[4]!) + (m[5] ?? '')),
     );
 
-// Ловушка: «А»/«В»/«С»/«Am» в словесной позиции — слово, не аккорд.
-bool _isWordTrap(ChordLex c, String line, List<Lex> lex) {
+bool _isWordTrap(ChordLex c, List<Lex> lex) {
   final single = c.rootName.length == 1 && c.chord.quality.isEmpty;
   final isAm =
       c.rootName == 'A' && c.chord.quality == 'm' && c.chord.bass == null;
   if (!single && !isAm) return false;
 
-  final before = line.substring(0, c.start).replaceAll(RegExp(r'\s'), '');
-  if (before.isNotEmpty && !before.endsWith('.')) return false;
-
-  return lex
-      .where((l) => l.start >= c.end)
-      .whereType<WordLex>()
-      .any((w) => RegExp(r'\p{L}{2}', unicode: true).hasMatch(w.text));
+  final wordRe = RegExp(r'\p{L}{2}', unicode: true);
+  Lex? prev;
+  for (final l in lex) {
+    if (l.end <= c.start) prev = l;
+  }
+  if (prev == null || prev is SymbolLex && prev.text.endsWith('.')) {
+    return lex
+        .where((l) => l.start >= c.end)
+        .whereType<WordLex>()
+        .any((w) => wordRe.hasMatch(w.text));
+  }
+  if (prev is WordLex) return wordRe.hasMatch(prev.text);
+  if (prev is ChordLex) return false;
+  if (prev is! SymbolLex) return false;
+  return !prev.text.endsWith(':') &&
+      !prev.text.endsWith('|') &&
+      !prev.text.endsWith('~') &&
+      !prev.text.endsWith('[');
 }
 
 final RegExp _tabLineStart = RegExp(r'^(e|B|G|D|A|E)\s*\|');
@@ -153,7 +163,7 @@ bool isChordLineText(String line) {
   final lex = lexLine(line);
   final chords = lex.whereType<ChordLex>().toList();
   if (chords.isEmpty) return false;
-  if (chords.length == 1 && _isWordTrap(chords.single, line, lex)) {
+  if (chords.length == 1 && _isWordTrap(chords.single, lex)) {
     return false;
   }
   return true;
