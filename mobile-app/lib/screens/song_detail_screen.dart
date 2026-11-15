@@ -132,7 +132,11 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       totalHeight: '\n'.allMatches(rendered.text).length * lineHeight,
     );
     _locator = LyricLocator(_transposedSong);
-    _session.broadcastSong(_layout.text.split('\n'), pos: _singerLine.value);
+    _session.broadcastSong(
+      _song.content,
+      transpose: _semitones,
+      pos: _singerLine.value,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _remeasureRows());
   }
 
@@ -351,7 +355,8 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     final session = _session;
     if (session.isEnabled) {
       session.broadcastSong(
-        _layout.text.split('\n'),
+        _song.content,
+        transpose: _semitones,
         pos: _singerLine.value,
       );
     }

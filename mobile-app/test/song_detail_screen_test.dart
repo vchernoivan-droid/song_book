@@ -94,7 +94,7 @@ class _FakeRemoteListener extends RemoteSongListener {
   bool started = false;
   bool stopped = false;
   int listenSent = 0;
-  final songs = <(List<String>?, int?)>[];
+  final songs = <(String?, int?, int?)>[];
   final positions = <int?>[];
 
   @override
@@ -111,8 +111,8 @@ class _FakeRemoteListener extends RemoteSongListener {
   void startListening({String? localeId}) => listenSent++;
 
   @override
-  void broadcastSong(List<String>? lines, {int? pos}) =>
-      songs.add((lines, pos));
+  void broadcastSong(String? content, {int? transpose, int? pos}) =>
+      songs.add((content, transpose, pos));
 
   @override
   void broadcastPos(int? pos) => positions.add(pos);
@@ -634,7 +634,7 @@ void main() {
       await tester.pump(const Duration(seconds: 6));
       expect(_cursorPaint(), findsOneWidget);
       expect(remote.songs.first.$1, isNotNull);
-      expect(remote.songs.first.$1!.length, greaterThan(10));
+      expect(remote.songs.first.$1, contains('море'));
       expect(remote.positions.whereType<int>(), isNotEmpty);
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)

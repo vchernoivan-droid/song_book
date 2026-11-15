@@ -73,7 +73,7 @@ void main() {
 
     final c = await _connect(port);
     addTearDown(c.client.close);
-    expect(await c.client.next(), {'type': 'hello', 'v': 2});
+    expect(await c.client.next(), {'type': 'hello', 'v': 3});
   });
 
   test('ready → listen с локалью, words → onResult', () async {
@@ -112,7 +112,7 @@ void main() {
 
     final first = await _connect(listener.port!);
     addTearDown(first.client.close);
-    expect(await first.client.next(), {'type': 'hello', 'v': 2});
+    expect(await first.client.next(), {'type': 'hello', 'v': 3});
 
     final second = await _connect(listener.port!);
     expect(await second.client.next(), {'type': 'rejected'});
@@ -136,19 +136,27 @@ void main() {
     c1.client.send({'type': 'ready'});
     await pumpEventQueue();
 
-    listener.broadcastSong(const ['куплет', 'припев'], pos: null);
+    listener.broadcastSong('Am\nтекст', transpose: 2, pos: null);
     expect(
       await c1.client.next(),
-      {'type': 'song', 'lines': ['куплет', 'припев'], 'pos': null},
+      {'type': 'song', 'content': 'Am\nтекст', 'transpose': 2, 'pos': null},
     );
 
     listener.broadcastPos(1);
     expect(await c1.client.next(), {'type': 'pos', 'pos': 1});
 
     listener.broadcastSong(null);
-    expect(await c1.client.next(), {'type': 'song', 'lines': null, 'pos': null});
+    expect(
+      await c1.client.next(),
+      {
+        'type': 'song',
+        'content': null,
+        'transpose': null,
+        'pos': null,
+      },
+    );
 
-    listener.broadcastSong(const ['новая'], pos: 0);
+    listener.broadcastSong('новая', transpose: 0, pos: 0);
     await c1.client.next();
     await c1.client.close();
     await Future<void>.delayed(Duration.zero);
@@ -160,7 +168,7 @@ void main() {
     await pumpEventQueue();
     expect(
       await c2.client.next(),
-      {'type': 'song', 'lines': ['новая'], 'pos': 0},
+      {'type': 'song', 'content': 'новая', 'transpose': 0, 'pos': 0},
     );
   });
 

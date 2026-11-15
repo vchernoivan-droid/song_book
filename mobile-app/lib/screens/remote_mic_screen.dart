@@ -8,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:song_book/services/song_parser.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _Phase { idle, connecting, connected, listening }
@@ -20,7 +21,7 @@ class RemoteMicScreen extends StatefulWidget {
 }
 
 class _RemoteMicScreenState extends State<RemoteMicScreen> {
-  static const int _protocolVersion = 2;
+  static const int _protocolVersion = 3;
   static const int _phraseTailChars = 500;
 
   Widget _buildSongView() {
@@ -74,6 +75,19 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   final _songKeys = <GlobalKey>[];
   final _songScroll = ScrollController();
   final _manualCtrl = TextEditingController();
+
+  void _setSong(String content, int? transpose) {
+    final semis = (((transpose ?? 0) % 12) + 12) % 12;
+    final rendered = renderSongLines(parseSong(content).transposed(semis));
+    final entries = [
+      for (final r in rendered.lines)
+        rendered.text.substring(r.start, r.end),
+    ];
+    _songKeys
+      ..clear()
+      ..addAll([for (var i = 0; i < entries.length; i++) GlobalKey()]);
+    _songLines = entries;
+  }
 
   final _speech = SpeechToText();
   bool _speechReady = false;
@@ -273,17 +287,14 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         _log('stop от сервера');
         unawaited(_stopListening());
       case 'song':
-        final lines = decoded['lines'];
-        if (lines is List) {
-          _log('song от сервера: ${lines.length} строк');
-          _songKeys
-            ..clear()
-            ..addAll([for (var i = 0; i < lines.length; i++) GlobalKey()]);
+        final content = decoded['content'];
+        if (content is String && content.isNotEmpty) {
+          _setSong(content, decoded['transpose'] is int
+              ? decoded['transpose'] as int
+              : null);
           final pos = decoded['pos'];
-          setState(() {
-            _songLines = [for (final l in lines) l as String];
-            _songPos = pos is int ? pos : null;
-          });
+          _log('song от сервера: ${_songLines!.length} строк');
+          setState(() => _songPos = pos is int ? pos : null);
           _scrollSongTo(_songPos, jump: true);
         } else {
           _log('song от сервера: закрыт');
@@ -704,6 +715,31 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).hintColor,
+                    ),
+                  ),
+                ),
+              if (_songLines != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                    ),
+                    child: Text(
+                      _phraseView(),
+                      maxLines: 2,
+                      overflow: TextOverflow.fade,
+                      style: TextStyle(
+                        fontFamily: 'Roboto Mono',
+                        fontSize: 12,
+                        height: 1.3,
+                        color: Theme.of(context).hintColor,
+                      ),
                     ),
                   ),
                 ),

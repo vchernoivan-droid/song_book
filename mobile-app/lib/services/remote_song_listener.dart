@@ -36,13 +36,14 @@ class RemoteSongListener implements SongListenSession {
   final void Function(String message)? onError;
   final Duration? pingInterval;
 
-  static const int protocolVersion = 2;
+  static const int protocolVersion = 3;
 
   HttpServer? _server;
   WebSocket? _peer;
   int? _port;
   List<String> _ips = const [];
-  List<String>? _songLines;
+  String? _songContent;
+  int? _songTranspose;
   int? _songPos;
 
   int? get port => _port;
@@ -75,10 +76,16 @@ class RemoteSongListener implements SongListenSession {
 
   void stopListening() => _sendToPeer({'type': 'stop'});
 
-  void broadcastSong(List<String>? lines, {int? pos}) {
-    _songLines = lines;
+  void broadcastSong(String? content, {int? transpose, int? pos}) {
+    _songContent = content;
+    _songTranspose = transpose;
     _songPos = pos;
-    _sendToPeer({'type': 'song', 'lines': lines, 'pos': pos});
+    _sendToPeer({
+      'type': 'song',
+      'content': content,
+      'transpose': transpose,
+      'pos': pos,
+    });
   }
 
   void broadcastPos(int? pos) {
@@ -183,9 +190,14 @@ class RemoteSongListener implements SongListenSession {
     switch (decoded['type']) {
       case 'ready':
         onPeerConnected?.call();
-        final lines = _songLines;
-        if (lines != null) {
-          _send(ws, {'type': 'song', 'lines': lines, 'pos': _songPos});
+        final content = _songContent;
+        if (content != null) {
+          _send(ws, {
+            'type': 'song',
+            'content': content,
+            'transpose': _songTranspose,
+            'pos': _songPos,
+          });
         }
       case 'words':
         final text = decoded['text'];
