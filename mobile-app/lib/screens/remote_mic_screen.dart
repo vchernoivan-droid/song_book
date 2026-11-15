@@ -167,6 +167,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _finalsKeep = 8;
   final List<String> _finals = [];
   List<String> _prevWords = [];
+  String _prevSessionText = '';
   double _prevConf = -1;
 
   void _log(String line) {
@@ -403,6 +404,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       );
       _log('listen запущен: locale=$localeId');
       _prevWords = [];
+      _prevSessionText = '';
       _prevConf = -1;
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
@@ -440,8 +442,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         .where((w) => w.isNotEmpty)
         .toList();
     final marks = _markerVerdicts(words, result.confidence);
-    if (result.confidence == 0.0) {
-      _storeFinal(sessionText);
+    if (_headChanged(words)) {
+      _storeFinal(_prevSessionText);
     }
     final stitched = _stitchForSend(words);
     final stitchedText = stitched.join(' ');
@@ -458,21 +460,25 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       _send({'type': 'words', 'text': stitchedText});
     }
     _prevWords = words;
+    _prevSessionText = sessionText;
     _prevConf = result.confidence;
     if (result.finalResult) _scheduleRestart('finalResult');
   }
 
   String _markerVerdicts(List<String> words, double conf) {
     if (_prevWords.isEmpty) return '';
-    final l1 = _prevWords.length;
-    final l2 = words.length;
     final pfx = _commonPrefixWords(_prevWords, words);
-    final hd = pfx >= min(3, min(l1, l2)) || _headInside(words, _prevWords)
-        ? 'ok'
-        : 'new';
-    final len = l2 < l1 * 0.7 && l2 < l1 - 2 ? 'new' : 'ok';
+    final hd = _headChanged(words) ? 'new' : 'ok';
     final cf = _prevConf != 0.0 && conf == 0.0 ? 'new' : 'ok';
-    return 'pfx=$pfx hd=$hd len=$len cf=$cf';
+    return 'pfx=$pfx hd=$hd cf=$cf';
+  }
+
+  bool _headChanged(List<String> words) {
+    if (_prevWords.isEmpty) return false;
+    final pfx = _commonPrefixWords(_prevWords, words);
+    final sameHead = pfx >= min(3, min(_prevWords.length, words.length)) ||
+        _headInside(words, _prevWords);
+    return !sameHead;
   }
 
   void _storeFinal(String text) {
@@ -484,14 +490,14 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       if (a.startsWith(b) || b.startsWith(a)) {
         if (text.length > last.length) {
           _finals[_finals.length - 1] = text;
-          _log('финал заменён: ${text.split(' ').length} слов');
+          _log('финал заменён (hd): ${text.split(' ').length} слов');
         }
         return;
       }
     }
     _finals.add(text);
     if (_finals.length > _finalsKeep) _finals.removeAt(0);
-    _log('финал сохранён: ${text.split(' ').length} слов');
+    _log('финал сохранён (hd): ${text.split(' ').length} слов');
   }
 
   static bool _sameWord(String a, String b) {
