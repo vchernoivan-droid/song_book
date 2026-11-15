@@ -6,19 +6,24 @@ import '../screens/remote_mic_screen.dart';
 import '../services/remote_mic_session.dart';
 import 'remote_mic_qr_panel.dart';
 
-Future<void> showRemoteMicDialog(BuildContext context) {
+Future<void> showRemoteMicDialog(
+  BuildContext context, {
+  RemoteMicSession? session,
+}) {
   return showDialog<void>(
     context: context,
-    builder: (_) => const _RemoteMicDialog(),
+    builder: (_) => _RemoteMicDialog(session ?? RemoteMicSession.instance),
   );
 }
 
 class _RemoteMicDialog extends StatelessWidget {
-  const _RemoteMicDialog();
+  const _RemoteMicDialog(this._session);
+
+  final RemoteMicSession _session;
 
   @override
   Widget build(BuildContext context) {
-    final session = RemoteMicSession.instance;
+    final session = _session;
     return AlertDialog(
       title: const Text('Микрофон'),
       content: AnimatedBuilder(
@@ -64,7 +69,10 @@ class _RemoteMicDialog extends StatelessWidget {
               ],
             );
           }
-          return RemoteMicQrPanel(port: session.port ?? 0, ips: session.ips);
+          return SizedBox(
+            width: 380,
+            child: RemoteMicQrPanel(port: session.port ?? 0, ips: session.ips),
+          );
         },
       ),
       actions: [
