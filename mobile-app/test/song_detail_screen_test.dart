@@ -9,6 +9,7 @@ import 'package:song_book/models/song.dart';
 import 'package:song_book/screens/song_detail_screen.dart';
 import 'package:song_book/services/song_listen_logger.dart';
 import 'package:song_book/services/remote_song_listener.dart';
+import 'package:song_book/services/remote_mic_session.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 Finder _cursorPaint() => find.byWidgetPredicate(
@@ -559,48 +560,54 @@ void main() {
       expect(position.pixels, closeTo(0, 0.6));
     });
 
-    testWidgets('remote: QR → подключение → отсчёт → слова → скролл → обрыв', (tester) async {
+    testWidgets('remote: пара → плей → слова → обрыв → QR → реконнект', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
       late _FakeRemoteListener remote;
+      final session = RemoteMicSession(
+        factory: ({
+          required localeId,
+          onResult,
+          onAddresses,
+          onPeerConnected,
+          onPeerDisconnected,
+          onError,
+        }) =>
+            remote = _FakeRemoteListener(
+              localeId: localeId,
+              onResult: onResult,
+              onAddresses: onAddresses,
+              onPeerConnected: onPeerConnected,
+              onPeerDisconnected: onPeerDisconnected,
+            ),
+      );
+      addTearDown(() => session.disable());
+
       await tester.pumpWidget(
         MaterialApp(
           home: SongDetailScreen(
             song: _song(_distinctLong()),
             listenLoggerFactory: _nullListenLogger,
-            remoteListenerFactory: ({
-              required localeId,
-              onResult,
-              onAddresses,
-              onPeerConnected,
-              onPeerDisconnected,
-              onError,
-            }) =>
-                remote = _FakeRemoteListener(
-                  localeId: localeId,
-                  onResult: onResult,
-                  onAddresses: onAddresses,
-                  onPeerConnected: onPeerConnected,
-                  onPeerDisconnected: onPeerDisconnected,
-                ),
+            remoteSession: session,
           ),
         ),
       );
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Микрофон на другом устройстве'));
+      await session.enable();
       await tester.pump();
-
       expect(remote.started, isTrue);
-      expect(find.byType(QrImageView), findsOneWidget);
-      expect(find.text('ws://192.168.1.2:54321'), findsOneWidget);
+      expect(find.byTooltip('Ждём телефон'), findsOneWidget);
 
       remote.onPeerConnected?.call();
       await tester.pump();
+      expect(find.byTooltip('Микрофон в паре'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Автоскролл'));
+      await tester.pump();
       expect(find.text('3'), findsOneWidget);
-      expect(find.byType(QrImageView), findsNothing);
 
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(seconds: 1));
@@ -620,8 +627,19 @@ void main() {
 
       remote.onPeerDisconnected?.call();
       await tester.pump();
-      expect(find.text('Телефон отключился'), findsOneWidget);
+      expect(find.text('Микрофон отключился'), findsOneWidget);
       expect(_cursorPaint(), findsNothing);
+      expect(find.byType(QrImageView), findsOneWidget);
+      expect(find.text('ws://192.168.1.2:54321'), findsOneWidget);
+
+      remote.onPeerConnected?.call();
+      await tester.pump();
+      expect(find.text('3'), findsOneWidget);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      await tester.pump();
+      expect(remote.listenSent, 2);
     });
   });
 }

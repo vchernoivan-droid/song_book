@@ -198,6 +198,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     }
     _send({'type': 'ready'});
     _log('ready отправлен');
+    unawaited(WakelockPlus.enable());
     setState(() {
       _phase = _Phase.connected;
       _status = 'Подключено: $url';
@@ -267,7 +268,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
-    unawaited(WakelockPlus.disable());
     try {
       await _speech.stop();
     } catch (_) {}
@@ -603,14 +603,26 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
               Text(
                 _phase == _Phase.listening
                     ? 'Слушаем и передаём'
-                    : 'Подключено, ждём запуск песни',
+                    : 'Ждём песню',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              if (_sttStatus.isNotEmpty)
+              if (_phase == _Phase.listening && _sttStatus.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     _sttStatus,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).hintColor,
+                    ),
+                  ),
+                )
+              else if (_phase == _Phase.connected)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Экран не погаснет, пока подключены: пока не умеем беречь батарею — лучше воткнуть зарядку',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).hintColor,

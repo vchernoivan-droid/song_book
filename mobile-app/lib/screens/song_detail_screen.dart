@@ -1,22 +1,22 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/song.dart';
 import '../models/song_defaults.dart';
 import '../services/auto_scroll.dart';
 import '../services/lyric_locator.dart';
-import '../services/remote_song_listener.dart';
+import '../services/remote_mic_session.dart';
 import '../services/song_highlight.dart';
 import '../services/song_listen_logger.dart';
 import '../services/song_listen_session.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
+import '../widgets/remote_mic_dialog.dart';
+import '../widgets/remote_mic_qr_panel.dart';
 import 'song_editor_screen.dart';
 
 /// Экран просмотра текста песни (моноширинный шрифт).
@@ -26,12 +26,12 @@ import 'song_editor_screen.dart';
 class SongDetailScreen extends StatefulWidget {
   final Song song;
   final SongListenLoggerFactory? listenLoggerFactory;
-  final RemoteSongListenerFactory? remoteListenerFactory;
+  final RemoteMicSession? remoteSession;
   const SongDetailScreen({
     super.key,
     required this.song,
     this.listenLoggerFactory,
-    this.remoteListenerFactory,
+    this.remoteSession,
   });
 
   @override
@@ -51,10 +51,8 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   bool _pausedByDrag = false;
   int _countdown = 0;
   SongListenSession? _recorder;
-  RemoteSongListener? _remote;
-  int? _remotePort;
-  List<String> _remoteIps = const [];
-  bool _remotePeerConnected = false;
+  bool _remoteFlow = false;
+  bool _resumeOnReconnect = false;
   LyricLocator? _locator;
   final _singerLine = ValueNotifier<int?>(null);
   int? _matchedLine;
@@ -68,14 +66,35 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       _layout;
   final _textKey = GlobalKey();
 
+  RemoteMicSession get _session =>
+      widget.remoteSession ?? RemoteMicSession.instance;
+
+  void _onSessionError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Телефон: $message')));
+  }
+
   @override
   void initState() {
     super.initState();
     _refreshLayout();
+    final session = _session;
+    session.onResult = _onRecognized;
+    session.onError = _onSessionError;
+    session.addListener(_onSessionChanged);
   }
 
   @override
   void dispose() {
+    if (_remoteFlow) {
+      _session.stopListening();
+    }
+    final session = _session;
+    session.removeListener(_onSessionChanged);
+    if (session.onResult == _onRecognized) session.onResult = null;
+    if (session.onError == _onSessionError) session.onError = null;
     _pursuit.dispose();
     _resetSinger();
     _recorder?.stop();
@@ -295,6 +314,10 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   Future<void> _beginCountdown({required bool record}) async {
     _resetSinger();
+    if (!record) {
+      _remoteFlow = true;
+      _resumeOnReconnect = false;
+    }
     setState(() {
       _autoScroll = true;
       _pausedByDrag = false;
@@ -308,91 +331,33 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     }
     if (!mounted || !_autoScroll) return;
     _recorder?.note('countdown-end');
-    if (!record) _remote?.startListening();
+    if (!record) {
+      _recorder = _RemoteSessionNotes(_session);
+      _session.startListening(SongListenLogger.localeIdFor(_song.content));
+    }
     if (_layout.tops.isEmpty) {
       _stopAutoScroll();
     }
   }
 
-  Future<void> _startRemoteMic() async {
-    final listener = (widget.remoteListenerFactory ?? RemoteSongListener.new)(
-      localeId: SongListenLogger.localeIdFor(_song.content),
-      onResult: _onRecognized,
-      onAddresses: (port, ips) {
-        if (!mounted) return;
-        setState(() {
-          _remotePort = port;
-          _remoteIps = ips;
-        });
-      },
-      onPeerConnected: _onRemotePeerReady,
-      onPeerDisconnected: _onRemotePeerDisconnected,
-      onError: (message) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Телефон: $message')));
-      },
-    );
-    _remote = listener;
-    _recorder = listener;
-    bool ok;
-    try {
-      ok = await listener.start();
-    } catch (e) {
-      debugPrint('remote mic start failed: $e');
-      ok = false;
-    }
-    if (!ok) {
-      if (identical(_remote, listener)) {
-        _remote = null;
-        _recorder = null;
-      }
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось открыть сервер')),
-        );
-      }
+  void _onSessionChanged() {
+    if (!mounted) return;
+    final session = _session;
+    if (_remoteFlow && _autoScroll && !session.isPaired) {
+      _resumeOnReconnect = true;
+      _stopAutoScroll(keepRemoteFlow: true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Микрофон отключился')),
+      );
+      setState(() {});
       return;
     }
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _stopRemoteMic() async {
-    final remote = _remote;
-    _remote = null;
-    if (identical(_recorder, remote)) _recorder = null;
-    _resetSinger();
-    _pausedByDrag = false;
-    _pursuit.stop();
-    setState(() {
-      _autoScroll = false;
-      _countdown = 0;
-      _remotePeerConnected = false;
-    });
-    await remote?.stop();
-  }
-
-  void _onRemotePeerReady() {
-    if (!mounted) return;
-    setState(() => _remotePeerConnected = true);
-    if (_autoScroll) {
-      _remote?.startListening();
-    } else {
+    if (_resumeOnReconnect && session.isPaired && !_autoScroll) {
+      _resumeOnReconnect = false;
       unawaited(_beginCountdown(record: false));
+      return;
     }
-  }
-
-  void _onRemotePeerDisconnected() {
-    if (!mounted) return;
-    setState(() => _remotePeerConnected = false);
-    if (_autoScroll) {
-      _stopAutoScroll();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Телефон отключился')),
-      );
-    }
+    setState(() {});
   }
 
   Future<void> _startRecording() async {
@@ -515,16 +480,18 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     return Colors.green.shade600;
   }
 
-  void _stopAutoScroll() {
+  void _stopAutoScroll({bool keepRemoteFlow = false}) {
     _resetSinger();
     _pausedByDrag = false;
     _pursuit.stop();
-    if (_remote != null) {
-      _remote?.stopListening();
-    } else {
+    if (_remoteFlow && !keepRemoteFlow) {
+      _remoteFlow = false;
+      _resumeOnReconnect = false;
+      _session.stopListening();
+    } else if (!_remoteFlow) {
       _recorder?.stop();
-      _recorder = null;
     }
+    _recorder = null;
     if (mounted) {
       setState(() {
         _autoScroll = false;
@@ -582,25 +549,19 @@ class _SongDetailScreenState extends State<SongDetailScreen>
                 ),
               ),
             IconButton(
-              tooltip: _remote == null
-                  ? 'Микрофон на другом устройстве'
-                  : 'Отключить удалённый микрофон',
+              tooltip: switch (_session.link) {
+                RemoteMicLink.off => 'Удалённый микрофон выключен',
+                RemoteMicLink.waiting => 'Ждём телефон',
+                RemoteMicLink.paired => 'Микрофон в паре',
+              },
               visualDensity: VisualDensity.compact,
               icon: Icon(
-                _remote == null ? Icons.mic_external_on : Icons.mic_off,
-                color: _remote == null
-                    ? null
-                    : (_remotePeerConnected
-                          ? Colors.green.shade700
-                          : Colors.amber.shade800),
+                _session.isPaired ? Icons.mic_external_on : Icons.mic_off,
+                color: _session.isPaired
+                    ? Colors.green.shade700
+                    : (_session.isEnabled ? Colors.amber.shade800 : null),
               ),
-              onPressed: () {
-                if (_remote != null) {
-                  unawaited(_stopRemoteMic());
-                } else {
-                  unawaited(_startRemoteMic());
-                }
-              },
+              onPressed: () => unawaited(showRemoteMicDialog(context)),
             ),
             IconButton(
               tooltip: _autoScroll ? 'Пауза' : 'Автоскролл',
@@ -609,7 +570,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
               onPressed: () {
                 if (_autoScroll) {
                   _stopAutoScroll();
-                } else if (_remote != null) {
+                } else if (_session.isPaired) {
                   unawaited(_beginCountdown(record: false));
                 } else {
                   unawaited(_startAutoScroll());
@@ -644,9 +605,11 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   }
 
   Widget _buildRemotePanel() {
-    if (_remote == null) return const SizedBox.shrink();
-    if (!_remotePeerConnected) {
-      final qr = jsonEncode({'port': _remotePort, 'ips': _remoteIps});
+    final session = _session;
+    if (!session.isEnabled || !_remoteFlow) return const SizedBox.shrink();
+    if (!session.isPaired) {
+      final port = session.port;
+      if (port == null) return const SizedBox.shrink();
       return SafeArea(
         top: false,
         child: Container(
@@ -656,43 +619,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
               top: BorderSide(color: Theme.of(context).dividerColor),
             ),
           ),
-          child: Row(
-            children: [
-              QrImageView(
-                data: qr,
-                version: QrVersions.auto,
-                size: 132,
-                padding: const EdgeInsets.all(4),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Ожидание телефона',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Откройте на телефоне «Микрофон» и наведите камеру на QR',
-                    ),
-                    const SizedBox(height: 8),
-                    for (final ip in _remoteIps)
-                      Text(
-                        'ws://$ip:$_remotePort',
-                        style: TextStyle(
-                          fontFamily: 'Roboto Mono',
-                          fontSize: 12,
-                          color: Theme.of(context).hintColor,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          child: RemoteMicQrPanel(port: port, ips: session.ips),
         ),
       );
     }
@@ -894,6 +821,21 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       ),
     );
   }
+}
+
+class _RemoteSessionNotes implements SongListenSession {
+  _RemoteSessionNotes(this._session);
+
+  final RemoteMicSession _session;
+
+  @override
+  Future<bool> start() async => true;
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  void note(String tag) => _session.note(tag);
 }
 
 class _CursorPainter extends CustomPainter {
