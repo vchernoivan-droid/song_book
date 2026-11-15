@@ -8,6 +8,7 @@ abstract interface class HeardFeed {
   Future<bool> initialize();
   Future<void> start(String? localeId);
   Future<void> stop();
+  Future<void> reset();
   Future<void> cancel();
 }
 
@@ -57,6 +58,9 @@ final class ReplayHeardFeed implements HeardFeed {
 
   @override
   Future<void> stop() async {}
+
+  @override
+  Future<void> reset() async {}
 
   @override
   Future<void> cancel() async {

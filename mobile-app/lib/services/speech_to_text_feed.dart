@@ -71,6 +71,14 @@ final class SpeechToTextFeed implements HeardFeed {
   }
 
   @override
+  Future<void> reset() async {
+    try {
+      await _speech.cancel();
+    } catch (_) {}
+    _ready = false;
+  }
+
+  @override
   Future<void> cancel() async {
     try {
       await _speech.cancel();

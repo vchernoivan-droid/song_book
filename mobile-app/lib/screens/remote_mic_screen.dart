@@ -162,6 +162,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   bool _listeningWanted = false;
   String? _activeLocaleId;
   Timer? _restartTimer;
+  Timer? _startWatchdog;
+  int _startAttempts = 0;
   WebSocket? _ws;
   StreamSubscription<dynamic>? _wsSub;
   bool _closed = false;
@@ -200,6 +202,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _closed = true;
     _listeningWanted = false;
     _restartTimer?.cancel();
+    _startWatchdog?.cancel();
     WakelockPlus.disable();
     _feedSub?.cancel();
     _statusSub?.cancel();
@@ -347,6 +350,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       case 'listen':
         _log('listen от сервера: locale=${decoded['localeId']}');
         _stitcher.clearFinals();
+        _startAttempts = 0;
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -395,8 +399,48 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       await _feed.start(localeId);
       _log('listen запущен: locale=$localeId');
       _stitcher.reset();
+      _armStartWatchdog();
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
+    } catch (e) {
+      _log('listen упал: $e');
+      _send({'type': 'error', 'message': 'Не удалось начать прослушивание'});
+      if (mounted) setState(() => _sttStatus = 'не запустилось: $e');
+    }
+  }
+
+  void _armStartWatchdog() {
+    _startWatchdog?.cancel();
+    _startWatchdog = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_onStartStalled()),
+    );
+  }
+
+  Future<void> _onStartStalled() async {
+    if (!_listeningWanted || _ws == null || _closed) return;
+    _startAttempts++;
+    final reinit = _startAttempts >= 2;
+    _log('listen не поднялся ($_startAttempts): '
+        'cancel${reinit ? ' + init' : ''} + повтор');
+    await _feed.reset();
+    if (reinit) {
+      final ok = await _feed.initialize();
+      if (!ok) _log('init после сброса не удался');
+    }
+    if (!_listeningWanted || _ws == null || _closed) return;
+    if (_startAttempts > 3) {
+      _log('listen не поднялся за $_startAttempts попыток — сдаюсь');
+      _send({'type': 'error', 'message': 'Распознавание не стартует — перезапустите приложение'});
+      if (mounted) {
+        setState(() => _sttStatus = 'не поднялся — перезапусти приложение');
+      }
+      return;
+    }
+    try {
+      await _feed.start(_activeLocaleId);
+      _log('listen запущен: locale=$_activeLocaleId');
+      _armStartWatchdog();
     } catch (e) {
       _log('listen упал: $e');
       _send({'type': 'error', 'message': 'Не удалось начать прослушивание'});
@@ -408,6 +452,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
+    _startWatchdog?.cancel();
+    _startWatchdog = null;
+    _startAttempts = 0;
     await _feed.stop();
     if (mounted && _phase == _Phase.listening) {
       setState(() => _phase = _Phase.connected);
@@ -438,6 +485,12 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   void _onFeedStatus(String status) {
     _log('status: $status');
     if (mounted) setState(() => _sttStatus = status);
+    if (status == 'listening') {
+      _startWatchdog?.cancel();
+      _startWatchdog = null;
+      _startAttempts = 0;
+      return;
+    }
     if (status == 'notListening' || status == 'done') {
       _scheduleRestart('status: $status');
     }
@@ -478,6 +531,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
+    _startWatchdog?.cancel();
+    _startWatchdog = null;
     unawaited(WakelockPlus.disable());
     _ws = null;
     unawaited(_feed.stop());
