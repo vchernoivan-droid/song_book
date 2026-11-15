@@ -286,4 +286,56 @@ void main() {
     );
     await listener.stop();
   });
+
+  test('log-фреймы пишутся в файл, новому пиру — новый файл', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final docs = Directory.systemTemp.createTempSync('rmic_logframe_test');
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getApplicationDocumentsDirectory') {
+            return docs.path;
+          }
+          return null;
+        });
+
+    final listener = RemoteSongListener(localeId: 'ru-RU', pingInterval: null);
+    addTearDown(listener.stop);
+    await listener.start();
+    final port = listener.port!;
+
+    final c1 = await _connect(port);
+    await c1.client.next();
+    c1.client.send({'type': 'ready'});
+    c1.client.send({'type': 'log', 'line': 'первая строка'});
+    c1.client.send({'type': 'log', 'line': 'вторая строка'});
+    await pumpEventQueue();
+    await c1.client.close();
+    await Future<void>.delayed(Duration.zero);
+
+    final c2 = await _connect(port);
+    await c2.client.next();
+    c2.client.send({'type': 'ready'});
+    c2.client.send({'type': 'log', 'line': 'после реконнекта'});
+    await pumpEventQueue();
+    await c2.client.close();
+    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
+
+    final logsDir = Directory(p.join(docs.path, 'logs'));
+    final files = logsDir
+        .listSync()
+        .map((e) => e as File)
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    expect(files, hasLength(2));
+    final first = files.first.readAsStringSync();
+    expect(first, contains('первая строка'));
+    expect(first, contains('вторая строка'));
+    expect(first, isNot(contains('после реконнекта')));
+    expect(
+      files.last.readAsStringSync(),
+      contains('после реконнекта'),
+    );
+  });
 }

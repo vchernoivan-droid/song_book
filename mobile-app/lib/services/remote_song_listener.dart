@@ -45,6 +45,7 @@ class RemoteSongListener implements SongListenSession {
   String? _songContent;
   int? _songTranspose;
   int? _songPos;
+  String? _clientLogPath;
 
   int? get port => _port;
   List<String> get ipCandidates => _ips;
@@ -144,6 +145,7 @@ class RemoteSongListener implements SongListenSession {
       return;
     }
     _peer = ws;
+    _clientLogPath = null;
     _send(ws, {'type': 'hello', 'v': protocolVersion});
     ws.listen(
       (dynamic data) => _onPeerData(ws, data),
@@ -173,8 +175,9 @@ class RemoteSongListener implements SongListenSession {
 
   String _stamp(DateTime t) {
     String p2(int v) => v.toString().padLeft(2, '0');
+    String p3(int v) => v.toString().padLeft(3, '0');
     return '${p2(t.year % 100)}-${p2(t.month)}-${p2(t.day)}-'
-        '${p2(t.hour)}-${p2(t.minute)}-${p2(t.second)}';
+        '${p2(t.hour)}-${p2(t.minute)}-${p2(t.second)}.${p3(t.millisecond)}';
   }
 
   void _onPeerData(WebSocket ws, dynamic data) {
@@ -205,12 +208,33 @@ class RemoteSongListener implements SongListenSession {
       case 'error':
         final message = decoded['message'];
         if (message is String) onError?.call(message);
+      case 'log':
+        final line = decoded['line'];
+        if (line is String && line.isNotEmpty) {
+          unawaited(_appendClientLog(line));
+        }
+    }
+  }
+
+  Future<void> _appendClientLog(String line) async {
+    try {
+      final base = await getApplicationDocumentsDirectory();
+      final logsDir = Directory(p.join(base.path, 'logs'));
+      logsDir.createSync(recursive: true);
+      final path = _clientLogPath ??= p.join(
+        logsDir.path,
+        'remote-mic.${_stamp(DateTime.now())}.log',
+      );
+      File(path).writeAsStringSync('$line\n', mode: FileMode.append);
+    } catch (e) {
+      debugPrint('REMOTE client log append failed: $e');
     }
   }
 
   void _onPeerGone(WebSocket ws) {
     if (!identical(ws, _peer)) return;
     _peer = null;
+    _clientLogPath = null;
     onPeerDisconnected?.call();
   }
 

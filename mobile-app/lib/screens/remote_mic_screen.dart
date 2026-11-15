@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' show min;
+import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -22,7 +22,6 @@ class RemoteMicScreen extends StatefulWidget {
 
 class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _protocolVersion = 3;
-  static const int _phraseTailChars = 500;
 
   Widget _buildSongView() {
     final lines = _songLines!;
@@ -54,16 +53,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         ],
       ),
     );
-  }
-
-  String _phraseView() {
-    if (_lastPhrase.length <= _phraseTailChars) {
-      return _lastPhrase.isEmpty ? '…' : _lastPhrase;
-    }
-    var tail = _lastPhrase.substring(_lastPhrase.length - _phraseTailChars);
-    final wordStart = tail.indexOf(RegExp(r'\s'));
-    if (wordStart >= 0) tail = tail.substring(wordStart + 1);
-    return '… $tail';
   }
 
   _Phase _phase = _Phase.idle;
@@ -117,6 +106,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _logLines.add('$ts $line');
     if (_logLines.length > _logLimit) {
       _logLines.removeRange(0, _logLines.length - _logLimit);
+    }
+    if (_ws != null) {
+      _send({'type': 'log', 'line': '$ts $line'});
     }
     debugPrint('RMIC $ts $line');
   }
@@ -465,9 +457,14 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     for (var i = _finals.length - 1;
         i >= 0 && stitched.length < _minSendWords;
         i--) {
+      final fWords = _finals[i]
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .toList();
+      final need = _minSendWords - stitched.length;
       stitched.insertAll(
         0,
-        _finals[i].split(RegExp(r'\s+')).where((w) => w.isNotEmpty),
+        fWords.skip(max(0, fWords.length - need)),
       );
     }
     if (stitched.length > _tailWords) {
@@ -731,8 +728,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                       ).colorScheme.surfaceContainerHighest,
                     ),
                     child: Text(
-                      _phraseView(),
-                      maxLines: 2,
+                      _lastPhrase.isEmpty ? '…' : _lastPhrase,
+                      maxLines: 3,
                       overflow: TextOverflow.fade,
                       style: TextStyle(
                         fontFamily: 'Roboto Mono',
@@ -760,7 +757,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                         ? Align(
                             alignment: Alignment.bottomLeft,
                             child: Text(
-                              _phraseView(),
+                              _lastPhrase.isEmpty ? '…' : _lastPhrase,
                               style: const TextStyle(
                                 fontFamily: 'Roboto Mono',
                                 fontSize: 16,
