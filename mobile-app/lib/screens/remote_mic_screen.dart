@@ -23,6 +23,78 @@ class RemoteMicScreen extends StatefulWidget {
 class _RemoteMicScreenState extends State<RemoteMicScreen> {
   static const int _protocolVersion = 3;
 
+  Widget _buildSongTab() {
+    final lines = _songLines;
+    if (lines == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.music_note,
+                size: 40,
+                color: Theme.of(context).hintColor,
+              ),
+              const SizedBox(height: 12),
+              const Text('Ждём песню от компьютера',
+                  style: TextStyle(fontSize: 15)),
+              const SizedBox(height: 6),
+              Text(
+                'Экран не погаснет, пока подключены: пока не умеем беречь батарею — лучше воткнуть зарядку',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).hintColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        child: _buildSongView(),
+      ),
+    );
+  }
+
+  Widget _buildHeardTab() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        child: SingleChildScrollView(
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Text(
+              _lastPhrase.isEmpty ? '…' : _lastPhrase,
+              style: const TextStyle(
+                fontFamily: 'Roboto Mono',
+                fontSize: 16,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSongView() {
     final lines = _songLines!;
     return SingleChildScrollView(
@@ -672,123 +744,60 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
               ),
             ],
           ),
-          _Phase.connected || _Phase.listening => Column(
-            children: [
-              const SizedBox(height: 24),
-              Icon(
-                _phase == _Phase.listening
-                    ? Icons.graphic_eq
-                    : Icons.smartphone,
-                size: 48,
-                color:
-                    _phase == _Phase.listening
-                        ? Colors.green.shade700
-                        : Colors.amber.shade800,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _phase == _Phase.listening
-                    ? 'Слушаем и передаём'
-                    : 'Ждём песню',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              if (_phase == _Phase.listening && _sttStatus.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    _sttStatus,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).hintColor,
-                    ),
-                  ),
-                )
-              else if (_phase == _Phase.connected)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Экран не погаснет, пока подключены: пока не умеем беречь батарею — лучше воткнуть зарядку',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).hintColor,
-                    ),
-                  ),
+          _Phase.connected || _Phase.listening => DefaultTabController(
+            length: 2,
+            child: Column(
+              children: [
+                const TabBar(
+                  tabs: [Tab(text: 'Песня'), Tab(text: 'Услышано')],
                 ),
-              if (_songLines != null)
+                Expanded(child: TabBarView(children: [_buildSongTab(), _buildHeardTab()])),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(6),
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                    ),
-                    child: Text(
-                      _lastPhrase.isEmpty ? '…' : _lastPhrase,
-                      maxLines: 3,
-                      overflow: TextOverflow.fade,
-                      style: TextStyle(
-                        fontFamily: 'Roboto Mono',
-                        fontSize: 12,
-                        height: 1.3,
-                        color: Theme.of(context).hintColor,
+                  padding: const EdgeInsets.fromLTRB(12, 0, 4, 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _phase == _Phase.listening
+                            ? Icons.graphic_eq
+                            : Icons.smartphone,
+                        size: 20,
+                        color:
+                            _phase == _Phase.listening
+                                ? Colors.green.shade700
+                                : Colors.amber.shade800,
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _phase == _Phase.listening
+                              ? (_sttStatus.isNotEmpty
+                                    ? _sttStatus
+                                    : 'Слушаем и передаём')
+                              : 'Ждём песню',
+                          style: const TextStyle(fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Отправить лог',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: _logLines.isEmpty
+                            ? null
+                            : () => unawaited(_sendLog()),
+                        icon: const Icon(Icons.upload_file),
+                      ),
+                      IconButton(
+                        tooltip: 'Отключиться',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => unawaited(_disconnect()),
+                        icon: const Icon(Icons.mic_off),
+                      ),
+                    ],
                   ),
                 ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                    ),
-                    child: _songLines == null
-                        ? Align(
-                            alignment: Alignment.bottomLeft,
-                            child: Text(
-                              _lastPhrase.isEmpty ? '…' : _lastPhrase,
-                              style: const TextStyle(
-                                fontFamily: 'Roboto Mono',
-                                fontSize: 16,
-                                height: 1.4,
-                              ),
-                            ),
-                          )
-                        : _buildSongView(),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () => unawaited(_disconnect()),
-                      icon: const Icon(Icons.mic_off),
-                      label: const Text('Отключиться'),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(_sendLog()),
-                      icon: const Icon(Icons.upload_file),
-                      label: const Text('Отправить лог'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         },
       ),
