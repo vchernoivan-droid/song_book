@@ -92,14 +92,14 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   @override
   void dispose() {
     _singerLine.removeListener(_onSingerLineChanged);
-    if (_remoteFlow) {
-      _session.stopListening();
-    }
     _session.broadcastSong(null);
     final session = _session;
     session.removeListener(_onSessionChanged);
     if (session.onResult == _onRecognized) session.onResult = null;
     if (session.onError == _onSessionError) session.onError = null;
+    if (_remoteFlow) {
+      session.stopListening();
+    }
     _pursuit.dispose();
     _resetSinger();
     _recorder?.stop();
@@ -333,7 +333,12 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       _pausedByDrag = false;
       _countdown = 3;
     });
-    if (record) unawaited(_startRecording());
+    if (record) {
+      unawaited(_startRecording());
+    } else {
+      _recorder = _RemoteSessionNotes(_session);
+      _session.startListening(SongListenLogger.localeIdFor(_song.content));
+    }
     while (_countdown > 0 && mounted && _autoScroll) {
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted || !_autoScroll) return;
@@ -341,10 +346,6 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     }
     if (!mounted || !_autoScroll) return;
     _recorder?.note('countdown-end');
-    if (!record) {
-      _recorder = _RemoteSessionNotes(_session);
-      _session.startListening(SongListenLogger.localeIdFor(_song.content));
-    }
     if (_layout.tops.isEmpty) {
       _stopAutoScroll();
     }
@@ -654,14 +655,33 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             Icon(Icons.smartphone, size: 16, color: Colors.green.shade700),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                _autoScroll ? 'Слушаем телефон' : 'Телефон подключен',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(_remoteStatusHead(session)),
+                  if (session.lastWords.isNotEmpty)
+                    Text(
+                      session.lastWords,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).hintColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  String _remoteStatusHead(RemoteMicSession session) {
+    if (!_autoScroll) return 'Телефон подключен';
+    final locale = session.listeningLocale;
+    return locale == null ? 'Слушаем телефон' : 'Слушаем телефон ($locale)';
   }
 
   @override

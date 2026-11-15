@@ -414,6 +414,13 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     }
   }
 
+  String get _statusText {
+    if (_phase != _Phase.listening) return 'Ждём песню';
+    final locale = _activeLocaleId == null ? '' : ' · $_activeLocaleId';
+    if (_sttStatus.isEmpty) return 'Слушаем и передаём$locale';
+    return '$_sttStatus$locale';
+  }
+
   void _onHeardEvent(HeardEvent event) {
     final res = _stitcher.onEvent(event);
     for (final line in res.logLines) {
@@ -657,11 +664,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _phase == _Phase.listening
-                              ? (_sttStatus.isNotEmpty
-                                    ? _sttStatus
-                                    : 'Слушаем и передаём')
-                              : 'Ждём песню',
+                          _statusText,
                           style: const TextStyle(fontSize: 13),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
