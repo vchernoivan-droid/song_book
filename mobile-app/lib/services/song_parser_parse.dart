@@ -139,14 +139,9 @@ bool _isLyricLine(String line) =>
     !isTabLineText(line) && !isChordLineText(line);
 
 Line _lyricLine(String line) {
-  final split = _lyricSplit(line);
-  final tokens = <Token>[
-    for (final run in _runsOf(line, split.head)) ...wordSyllables(run.text),
-  ];
-  if (split.annotation != null) {
-    tokens.add(AnnotationToken(split.annotation!));
-  }
-  return Line(tokens);
+  return Line([
+    for (final run in _runsOf(line, lexLine(line))) ...wordSyllables(run.text),
+  ]);
 }
 
 final RegExp _glueRe = RegExp(r'^~+$');
@@ -180,8 +175,7 @@ Line _progressionLine(String line, int tonic) {
 }
 
 Line _mergePair(String over, String under, int tonic) {
-  final underSplit = _lyricSplit(under);
-  final wordRuns = _runsOf(under, underSplit.head);
+  final wordRuns = _runsOf(under, lexLine(under));
   final lex = lexLine(over, skipPeriods: true);
 
   final slotText = <String>[];
@@ -281,9 +275,6 @@ Line _mergePair(String over, String under, int tonic) {
     tokens.addAll(slotExtras[i]);
   }
   tokens.addAll(lineEnd);
-  if (underSplit.annotation != null) {
-    tokens.add(AnnotationToken(underSplit.annotation!));
-  }
   return Line(tokens);
 }
 

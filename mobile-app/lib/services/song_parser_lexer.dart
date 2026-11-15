@@ -75,25 +75,6 @@ List<({String text, int start})> _runsOf(String line, List<Lex> lex) {
   return runs;
 }
 
-({List<Lex> head, String? annotation}) _lyricSplit(String line) {
-  final lex = lexLine(line);
-  var headRuns = 0;
-  var prevEnd = -1;
-  for (final l in lex) {
-    final startsRun = l.start > prevEnd;
-    prevEnd = l.end;
-    if (!startsRun) continue;
-    final dashOnly = l is SymbolLex && _dashTokenRe.hasMatch(l.text);
-    final wordStart = l is WordLex || l is ChordLex;
-    // Хвост-аннотация — первый символьный кусок после слов.
-    if (!wordStart && !dashOnly && headRuns > 0) {
-      return (head: lex.sublist(0, lex.indexOf(l)), annotation: line.substring(l.start));
-    }
-    headRuns++;
-  }
-  return (head: lex, annotation: null);
-}
-
 // Двойники латинских из-за раскладки; индексы синхронны с _lookalikeLatin.
 const String _lookalikeCyrillic = 'АВЕКМНОРСТУХ';
 const String _lookalikeLatin = 'ABEKMHOPCTYX';
@@ -154,9 +135,6 @@ bool isTabLineText(String line) {
   final t = line.trimLeft();
   return _tabLineStart.hasMatch(t) || t.startsWith('----');
 }
-
-// Дефисы/тире — пунктуация текста, не хвост-аннотация.
-final RegExp _dashTokenRe = RegExp(r'^[-‒–—―−]+$');
 
 // Строка аккордная, если есть аккорды; одиночная «ловушка» — текстовая.
 bool isChordLineText(String line) {

@@ -55,9 +55,6 @@ String _renderProgression(
         if (out.isNotEmpty && !prevGlued) out.write('   ');
         out.write(text);
         prevGlued = false;
-      case AnnotationToken(:final text):
-        out.write(' $text');
-        prevGlued = false;
       case SyllableToken():
         break;
     }
@@ -77,7 +74,6 @@ int chordWidth(Chord chord, int tonic, [String? tonicName]) {
 String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
   final chords = StringBuffer();
   final words = StringBuffer();
-  final wordAnnots = <String>[];
   var prevInline = false;
   var effEnd = -1; // правая граница аккордной строки (с резервом под #/b)
 
@@ -139,12 +135,8 @@ String _renderMerged(List<Token> tokens, int tonic, String tonicName) {
         chords.write(' ' * (s - chords.length) + text);
         prevInline = false;
         effEnd = chords.length;
-      case AnnotationToken(:final text):
-        wordAnnots.add(text);
-        prevInline = false;
     }
   }
 
-  words.write(wordAnnots.map((a) => ' $a').join());
   return chords.isEmpty ? words.toString() : '$chords\n$words';
 }

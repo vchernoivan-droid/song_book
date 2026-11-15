@@ -246,15 +246,9 @@ void main() {
       expect(renderSong(t), contains('// you can do D7  here'));
     });
 
-    test('аннотация строки текста не трогается', () {
-      final line = parseSong('Припев (2 раза)\n')
-          .transposed(5)
-          .sections
-          .single
-          .lines
-          .single;
-      expect(line.tokens.whereType<AnnotationToken>().single,
-          const AnnotationToken('(2 раза)'));
+    test('хвост-пометка текста не трогается транспонированием', () {
+      expect(renderSong(parseSong('Припев (2 раза)\n').transposed(5)),
+          'Припев (2 раза)\n');
     });
 
     test('кириллический двойник транспонируется как обычный аккорд', () {
@@ -698,13 +692,11 @@ e|-------0---------------|
     });
   });
 
-  group('аннотации-хвосты', () {
-    final both =
-        'G        C           // you can do C7 here\n'
-        'Говорит, послухайте  /\u0024%^&/ slower than  in the chorus\n';
-
+  group('хвосты строк', () {
     test('хвост аккордной строки — плоские куски, аккорд — ChordToken', () {
-      final song = parseSong(both);
+      const input =
+          'G        C           // you can do C7 here\nГоворит, послухайте\n';
+      final song = parseSong(input);
       final s = song.sections.single;
       final t = song.tonic;
       expect(s.lines, hasLength(1));
@@ -719,24 +711,28 @@ e|-------0---------------|
         const InlineToken('// you can do'),
         chord('C7', endOfLine: true, tonic: t),
         const InlineToken('here'),
-        AnnotationToken('/\u0024%^&/ slower than  in the chorus'),
       ]);
     });
 
     test('канонический рендер: каждый хвост в конце своей строки', () {
+      const both =
+          'G        C           // you can do C7 here\n'
+          'Говорит, послухайте  /\u0024%^&/ slower than in the chorus\n';
       expect(
           renderSong(parseSong(both)),
-          'G        C          // you can do C7  here\n'
-          'Говорит, послухайте /\u0024%^&/ slower than  in the chorus\n');
+          'G        C                        C7                 '
+          '// you can do here\n'
+          'Говорит, послухайте /\u0024%^&/ slower than in the chorus\n');
     });
 
-    test('аннотация аккордной строки стоит за концом слов, как аккорд конца', () {
-      const input = 'G               C        //укоцдулкод\nДержит в правой ручке\n';
+    test('хвост аккордной строки стоит за концом слов, как аккорд конца', () {
+      const input =
+          'G               C        //укоцдулкод\nДержит в правой ручке\n';
       expect(renderSong(parseSong(input)),
           'G               C     //укоцдулкод\nДержит в правой ручке\n');
     });
 
-    test('прогрессия с аннотацией', () {
+    test('прогрессия с хвостом-пометкой', () {
       final song = parseSong('Am F // быстро\n');
       final t = song.tonic;
       expect(song.sections.single.lines.single.tokens,
@@ -744,28 +740,51 @@ e|-------0---------------|
       expect(renderSong(song), 'Am   F // быстро\n');
     });
 
-    test('тире в середине строки — текст, а не аннотация', () {
+    test('тире в середине строки — текст', () {
       final chordLine = 'Dm${' ' * 26}Gm  A7';
       const wordLine = 'Сладострастная отрава – золотая Брич-Мулла';
       final song = parseSong('$chordLine\n$wordLine\n');
       final s = song.sections.single;
       final t = song.tonic;
-      expect(s.lines.single.tokens.whereType<AnnotationToken>(), isEmpty);
       expect(s.lines.single.tokens,
           contains(syl('та', chord: 'Gm', dash: SyllableDash.both, tonic: t)));
       expect(s.lines.single.tokens,
           contains(syl('Брич', chord: 'A7', dash: SyllableDash.right, tonic: t)));
     });
 
-    test('строка текста с хвостом-пометкой', () {
+    test('хвост-пометка текстовой строки — обычные слоги', () {
       final s = parseSong('Припев (2 раза)\n').sections.single;
       expect(s.lines.single.tokens, [
         syl('При', dash: SyllableDash.right),
         syl('пев', dash: SyllableDash.left),
-        const AnnotationToken('(2 раза)'),
+        syl('(2'),
+        syl('ра', dash: SyllableDash.right),
+        syl('за)', dash: SyllableDash.left),
       ]);
       expect(renderSong(parseSong('Припев (2 раза)\n')),
           'Припев (2 раза)\n');
+    });
+  });
+
+  group('реплики и кавычки', () {
+    test('кавычки в середине строки не отрезают текст: слоги полные', () {
+      final s = parseSong('Я скажу: "А что, не так уж я и страшен"\n')
+          .sections
+          .single;
+      final tokens = s.lines.single.tokens;
+      expect(tokens, contains(syl('что,')));
+      expect(tokens, contains(syl('стра', dash: SyllableDash.right)));
+      expect(
+          renderSong(parseSong('Я скажу: "А что, не так уж я и страшен"\n')),
+          'Я скажу: "А что, не так уж я и страшен"\n');
+    });
+
+    test('аккорд держится на слове внутри реплики', () {
+      final song = parseSong(
+          'G  Em       C\nЯ скажу: "А что, не так уж я и страшен"\n');
+      final t = song.tonic;
+      expect(song.sections.single.lines.single.tokens,
+          contains(syl('что,', chord: 'C', tonic: t)));
     });
   });
 

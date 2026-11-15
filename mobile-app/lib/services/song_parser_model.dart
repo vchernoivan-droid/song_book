@@ -148,19 +148,6 @@ class RawToken extends Token {
   int get hashCode => text.hashCode;
 }
 
-class AnnotationToken extends Token {
-  final String text;
-
-  const AnnotationToken(this.text);
-
-  @override
-  bool operator ==(Object other) =>
-      other is AnnotationToken && other.text == text;
-
-  @override
-  int get hashCode => text.hashCode;
-}
-
 class InlineToken extends Token {
   // ~ вплотную к предыдущему аккорду (glued) или пометка «2x»/«// …» через пробел.
   final String text;
