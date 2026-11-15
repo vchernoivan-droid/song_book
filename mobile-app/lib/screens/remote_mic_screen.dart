@@ -1,20 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:song_book/services/heard_feed.dart';
+import 'package:song_book/services/heard_stitcher.dart';
 import 'package:song_book/services/song_parser.dart';
+import 'package:song_book/services/speech_to_text_feed.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum _Phase { idle, connecting, connected, listening }
 
 class RemoteMicScreen extends StatefulWidget {
-  const RemoteMicScreen({super.key});
+  const RemoteMicScreen({super.key, this.feed});
+
+  final HeardFeed? feed;
 
   @override
   State<RemoteMicScreen> createState() => _RemoteMicScreenState();
@@ -150,8 +151,12 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _songLines = entries;
   }
 
-  final _speech = SpeechToText();
-  bool _speechReady = false;
+  final HeardStitcher _stitcher = HeardStitcher();
+  late final HeardFeed _feed =
+      widget.feed ?? SpeechToTextFeed(onDevice: true, pauseFor: const Duration(seconds: 10));
+  StreamSubscription<HeardEvent>? _feedSub;
+  StreamSubscription<String>? _statusSub;
+  StreamSubscription<String>? _errorSub;
   bool _listeningWanted = false;
   String? _activeLocaleId;
   Timer? _restartTimer;
@@ -162,13 +167,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   static const int _logLimit = 500;
   final List<String> _logLines = [];
-  static const int _minSendWords = 8;
-  static const int _tailWords = 32;
-  static const int _finalsKeep = 8;
-  final List<String> _finals = [];
-  List<String> _prevWords = [];
-  String _prevSessionText = '';
-  double _prevConf = -1;
 
   void _log(String line) {
     final now = DateTime.now();
@@ -187,15 +185,26 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _feedSub = _feed.events.listen(_onHeardEvent);
+    _statusSub = _feed.statuses.listen(_onFeedStatus);
+    _errorSub = _feed.errors.listen(_onFeedError);
+  }
+
+  @override
   void dispose() {
     _closed = true;
     _listeningWanted = false;
     _restartTimer?.cancel();
     WakelockPlus.disable();
+    _feedSub?.cancel();
+    _statusSub?.cancel();
+    _errorSub?.cancel();
+    unawaited(_feed.cancel());
     _wsSub?.cancel();
     _wsSub = null;
     _ws?.close();
-    _speech.cancel();
     _manualCtrl.dispose();
     _songScroll.dispose();
     super.dispose();
@@ -300,7 +309,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   Future<void> _afterHello(WebSocket ws, String url) async {
     _serverUrl = url;
-    final speechOk = await _initSpeech();
+    final speechOk = await _feed.initialize();
     _log('speech init: $speechOk');
     if (_closed || !mounted) return;
     if (!speechOk) {
@@ -322,19 +331,6 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     });
   }
 
-  Future<bool> _initSpeech() async {
-    if (_speechReady) return true;
-    try {
-      _speechReady = await _speech.initialize(
-        onStatus: _onSpeechStatus,
-        onError: _onSpeechError,
-      );
-    } catch (_) {
-      _speechReady = false;
-    }
-    return _speechReady;
-  }
-
   void _onServerMessage(dynamic data) {
     final Object? decoded;
     try {
@@ -346,7 +342,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     switch (decoded['type']) {
       case 'listen':
         _log('listen от сервера: locale=${decoded['localeId']}');
-        _finals.clear();
+        _stitcher.clearFinals();
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -392,20 +388,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _activeLocaleId = localeId;
     _listeningWanted = true;
     try {
-      await _speech.listen(
-        onResult: _onSpeechResult,
-        listenOptions: SpeechListenOptions(
-          partialResults: true,
-          listenMode: ListenMode.dictation,
-          localeId: localeId,
-          pauseFor: const Duration(seconds: 10),
-          onDevice: true,
-        ),
-      );
+      await _feed.start(localeId);
       _log('listen запущен: locale=$localeId');
-      _prevWords = [];
-      _prevSessionText = '';
-      _prevConf = -1;
+      _stitcher.reset();
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
     } catch (e) {
@@ -419,136 +404,38 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _listeningWanted = false;
     _restartTimer?.cancel();
     _restartTimer = null;
-    try {
-      await _speech.stop();
-    } catch (_) {}
+    await _feed.stop();
     if (mounted && _phase == _Phase.listening) {
       setState(() => _phase = _Phase.connected);
     }
   }
 
-  void _onSpeechResult(SpeechRecognitionResult result) {
-    final sessionText = result.recognizedWords.trim();
-    if (sessionText.isEmpty) {
-      _log(
-        '${result.finalResult ? 'final' : 'partial'} '
-        'conf=${result.confidence.toStringAsFixed(2)} words=0',
-      );
-      if (result.finalResult) _scheduleRestart('finalResult');
-      return;
+  void _onHeardEvent(HeardEvent event) {
+    final res = _stitcher.onEvent(event);
+    for (final line in res.logLines) {
+      _log(line);
     }
-    final words = sessionText
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toList();
-    final marks = _markerVerdicts(words, result.confidence);
-    if (_headChanged(words)) {
-      _storeFinal(_prevSessionText);
+    if (res.phraseView != null && mounted) {
+      setState(() => _lastPhrase = res.phraseView!);
     }
-    final stitched = _stitchForSend(words);
-    final stitchedText = stitched.join(' ');
-    if (mounted) setState(() => _lastPhrase = stitchedText);
-    _log(
-      '${result.finalResult ? 'final' : 'partial'} '
-      'conf=${result.confidence.toStringAsFixed(2)} '
-      'words=${stitched.length}'
-          '${stitched.length > words.length ? ' +${stitched.length - words.length}' : ''}'
-          '${marks.isEmpty ? '' : ' $marks'}: '
-          '${stitchedText.length > 60 ? stitchedText.substring(stitchedText.length - 60) : stitchedText}',
-    );
-    if (stitched.isNotEmpty) {
-      _send({'type': 'words', 'text': stitchedText});
+    if (res.sendText != null) {
+      _send({'type': 'words', 'text': res.sendText});
     }
-    _prevWords = words;
-    _prevSessionText = sessionText;
-    _prevConf = result.confidence;
-    if (result.finalResult) _scheduleRestart('finalResult');
+    if (event.isFinal) _scheduleRestart('finalResult');
   }
 
-  String _markerVerdicts(List<String> words, double conf) {
-    if (_prevWords.isEmpty) return '';
-    final pfx = _commonPrefixWords(_prevWords, words);
-    final hd = _headChanged(words) ? 'new' : 'ok';
-    final cf = _prevConf != 0.0 && conf == 0.0 ? 'new' : 'ok';
-    return 'pfx=$pfx hd=$hd cf=$cf';
+  void _onFeedStatus(String status) {
+    _log('status: $status');
+    if (mounted) setState(() => _sttStatus = status);
+    if (status == 'notListening' || status == 'done') {
+      _scheduleRestart('status: $status');
+    }
   }
 
-  bool _headChanged(List<String> words) {
-    if (_prevWords.isEmpty) return false;
-    final pfx = _commonPrefixWords(_prevWords, words);
-    final sameHead = pfx >= min(3, min(_prevWords.length, words.length)) ||
-        _headInside(words, _prevWords);
-    return !sameHead;
-  }
-
-  void _storeFinal(String text) {
-    if (_finals.isNotEmpty) {
-      final last = _finals.last;
-      if (last == text) return;
-      final a = last.toLowerCase();
-      final b = text.toLowerCase();
-      if (a.startsWith(b) || b.startsWith(a)) {
-        if (text.length > last.length) {
-          _finals[_finals.length - 1] = text;
-          _log('финал заменён (hd): ${text.split(' ').length} слов');
-        }
-        return;
-      }
-    }
-    _finals.add(text);
-    if (_finals.length > _finalsKeep) _finals.removeAt(0);
-    _log('финал сохранён (hd): ${text.split(' ').length} слов');
-  }
-
-  static bool _sameWord(String a, String b) {
-    final x = a.toLowerCase();
-    final y = b.toLowerCase();
-    if (x == y) return true;
-    if (x.length < 2 || y.length < 2) return false;
-    return x.startsWith(y) || y.startsWith(x);
-  }
-
-  static int _commonPrefixWords(List<String> a, List<String> b) {
-    var n = 0;
-    for (var i = 0; i < a.length && i < b.length; i++) {
-      if (!_sameWord(a[i], b[i])) break;
-      n++;
-    }
-    return n;
-  }
-
-  static bool _headInside(List<String> p2, List<String> p1) {
-    if (p2.isEmpty) return true;
-    if (p2.length < 2) {
-      return p1.any((w) => _sameWord(w, p2.first));
-    }
-    for (var i = 0; i + 1 < p1.length; i++) {
-      if (_sameWord(p1[i], p2[0]) && _sameWord(p1[i + 1], p2[1])) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  List<String> _stitchForSend(List<String> words) {
-    final stitched = List<String>.of(words);
-    for (var i = _finals.length - 1;
-        i >= 0 && stitched.length < _minSendWords;
-        i--) {
-      final fWords = _finals[i]
-          .split(RegExp(r'\s+'))
-          .where((w) => w.isNotEmpty)
-          .toList();
-      final need = _minSendWords - stitched.length;
-      stitched.insertAll(
-        0,
-        fWords.skip(max(0, fWords.length - need)),
-      );
-    }
-    if (stitched.length > _tailWords) {
-      stitched.removeRange(0, stitched.length - _tailWords);
-    }
-    return stitched;
+  void _onFeedError(String message) {
+    _log('stt error: $message');
+    if (mounted) setState(() => _sttStatus = message);
+    _send({'type': 'error', 'message': message});
   }
 
   void _scheduleRestart(String reason) {
@@ -562,25 +449,9 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   }
 
   Future<void> _restartListening() async {
-    try {
-      await _speech.stop();
-    } catch (_) {}
+    await _feed.stop();
     if (!_listeningWanted || _ws == null || _closed) return;
     await _startListening(_activeLocaleId);
-  }
-
-  void _onSpeechStatus(String status) {
-    _log('status: $status');
-    if (mounted) setState(() => _sttStatus = status);
-    if (status == 'notListening' || status == SpeechToText.doneStatus) {
-      _scheduleRestart('status: $status');
-    }
-  }
-
-  void _onSpeechError(SpeechRecognitionError error) {
-    _log('stt error: ${error.errorMsg}');
-    if (mounted) setState(() => _sttStatus = error.errorMsg);
-    _send({'type': 'error', 'message': error.errorMsg});
   }
 
   void _onServerClosed() {
@@ -591,7 +462,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _restartTimer = null;
     unawaited(WakelockPlus.disable());
     _ws = null;
-    _speech.stop();
+    unawaited(_feed.stop());
     if (!mounted) return;
     setState(() {
       _phase = _Phase.idle;
@@ -628,7 +499,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _restartTimer?.cancel();
     _restartTimer = null;
     unawaited(WakelockPlus.disable());
-    await _speech.stop();
+    await _feed.stop();
     await _dropSocket();
     if (!mounted) return;
     setState(() {

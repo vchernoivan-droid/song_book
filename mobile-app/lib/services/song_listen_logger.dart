@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:song_book/services/heard_feed.dart';
+import 'package:song_book/services/speech_to_text_feed.dart';
 
 import 'song_listen_session.dart';
 
@@ -24,6 +24,7 @@ class SongListenLogger implements SongListenSession {
     required this.localeId,
     required this.position,
     this.onResult,
+    this.feed,
   });
 
   final String title;
@@ -31,8 +32,10 @@ class SongListenLogger implements SongListenSession {
   final String? localeId;
   final void Function(String recognizedWords)? onResult;
   final double Function() position;
+  final HeardFeed? feed;
 
-  final _speech = SpeechToText();
+  late final HeardFeed _feed = feed ?? SpeechToTextFeed();
+  final List<StreamSubscription<Object?>> _subs = [];
   IOSink? _sink;
   File? _file;
   Future<void> _flushChain = Future.value();
@@ -51,30 +54,25 @@ class SongListenLogger implements SongListenSession {
     _write('# fontSize: $fontSize');
     _write('# file: ${_file!.path}');
 
-    final ok = await _speech.initialize(onStatus: _onStatus, onError: _onError);
+    _subs
+      ..add(_feed.events.listen(_onResult))
+      ..add(_feed.statuses.listen(_onStatus))
+      ..add(_feed.errors.listen(_onError))
+      ..add(_feed.levels.listen(_onSoundLevel));
+    final ok = await _feed.initialize();
     if (!ok || _stopping) {
       await _close(deleteFile: true);
       return false;
     }
     try {
-      await _speech.listen(
-        onResult: _onResult,
-        onSoundLevelChange: _onSoundLevel,
-        listenOptions: SpeechListenOptions(
-          partialResults: true,
-          listenMode: ListenMode.dictation,
-          localeId: localeId,
-        ),
-      );
+      await _feed.start(localeId);
     } catch (e) {
       _write('error: listen: $e');
       await _close(deleteFile: true);
       return false;
     }
     if (_stopping) {
-      try {
-        await _speech.cancel();
-      } catch (_) {}
+      await _feed.cancel();
     }
     return true;
   }
@@ -82,9 +80,7 @@ class SongListenLogger implements SongListenSession {
   @override
   Future<void> stop() async {
     _stopping = true;
-    try {
-      await _speech.stop();
-    } catch (_) {}
+    await _feed.stop();
     _write('stop');
     await _close();
   }
@@ -94,8 +90,7 @@ class SongListenLogger implements SongListenSession {
 
   void _onStatus(String status) => _write('status: $status');
 
-  void _onError(SpeechRecognitionError error) =>
-      _write('error: ${error.errorMsg}');
+  void _onError(String message) => _write('error: $message');
 
   void _onSoundLevel(double level) {
     final now = DateTime.now();
@@ -104,14 +99,14 @@ class SongListenLogger implements SongListenSession {
     _write('level: ${level.toStringAsFixed(1)} dB');
   }
 
-  void _onResult(SpeechRecognitionResult result) {
+  void _onResult(HeardEvent event) {
     _write(
-      '${result.finalResult ? 'final' : 'partial'} '
-      'conf=${result.confidence.toStringAsFixed(2)} '
-      'alt=${result.alternates.length} '
-      'pos=${position().toStringAsFixed(2)}: ${result.recognizedWords}',
+      '${event.isFinal ? 'final' : 'partial'} '
+      'conf=${event.confidence.toStringAsFixed(2)} '
+      'alt=${event.altCount} '
+      'pos=${position().toStringAsFixed(2)}: ${event.sessionText}',
     );
-    onResult?.call(result.recognizedWords);
+    onResult?.call(event.sessionText);
   }
 
   void _write(String line) {
@@ -128,6 +123,10 @@ class SongListenLogger implements SongListenSession {
   }
 
   Future<void> _close({bool deleteFile = false}) async {
+    for (final sub in _subs) {
+      await sub.cancel();
+    }
+    _subs.clear();
     final sink = _sink;
     _sink = null;
     if (sink != null) {
