@@ -7,7 +7,7 @@ import '../services/deepseek_credentials.dart';
 import '../services/song_storage.dart';
 import 'deepseek_settings_screen.dart';
 import 'deepseek_song_screen.dart';
-import 'remote_mic_screen.dart';
+import '../widgets/remote_mic_dialog.dart';
 import 'song_detail_screen.dart';
 import 'song_editor_screen.dart';
 
@@ -81,11 +81,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
-  Future<void> _openListen() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const RemoteMicScreen()));
-  }
+  Future<void> _openListen() => showRemoteMicDialog(context);
 
   Future<void> _openEditor([Song? song]) async {
     await Navigator.of(context).push<Song?>(

@@ -68,7 +68,8 @@ class RemoteSongListener implements SongListenSession {
     }
   }
 
-  void startListening() => _sendToPeer({'type': 'listen', 'localeId': localeId});
+  void startListening({String? localeId}) =>
+      _sendToPeer({'type': 'listen', 'localeId': localeId ?? this.localeId});
 
   void stopListening() => _sendToPeer({'type': 'stop'});
 

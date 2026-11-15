@@ -105,7 +105,7 @@ class _FakeRemoteListener extends RemoteSongListener {
   Future<void> stop() async => stopped = true;
 
   @override
-  void startListening() => listenSent++;
+  void startListening({String? localeId}) => listenSent++;
 }
 
 void main() {
