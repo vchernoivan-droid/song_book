@@ -157,6 +157,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   StreamSubscription<HeardEvent>? _feedSub;
   StreamSubscription<String>? _statusSub;
   StreamSubscription<String>? _errorSub;
+  StreamSubscription<double>? _levelSub;
+  DateTime _lastLevelAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _listeningWanted = false;
   String? _activeLocaleId;
   Timer? _restartTimer;
@@ -190,6 +192,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _feedSub = _feed.events.listen(_onHeardEvent);
     _statusSub = _feed.statuses.listen(_onFeedStatus);
     _errorSub = _feed.errors.listen(_onFeedError);
+    _levelSub = _feed.levels.listen(_onFeedLevel);
   }
 
   @override
@@ -201,6 +204,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _feedSub?.cancel();
     _statusSub?.cancel();
     _errorSub?.cancel();
+    _levelSub?.cancel();
     unawaited(_feed.cancel());
     _wsSub?.cancel();
     _wsSub = null;
@@ -436,6 +440,13 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _log('stt error: $message');
     if (mounted) setState(() => _sttStatus = message);
     _send({'type': 'error', 'message': message});
+  }
+
+  void _onFeedLevel(double level) {
+    final now = DateTime.now();
+    if (now.difference(_lastLevelAt).inMilliseconds < 1000) return;
+    _lastLevelAt = now;
+    _log('level: ${level.toStringAsFixed(1)} dB');
   }
 
   void _scheduleRestart(String reason) {
