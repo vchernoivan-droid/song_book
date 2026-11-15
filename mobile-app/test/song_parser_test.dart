@@ -1067,7 +1067,7 @@ G
       expect(propagated(input), renderSong(parseSong(expected)));
     });
 
-    test('слово короче шаблона — лишний аккорд пропускается, строки сверх шаблона не трогаются', () {
+    test('лишние аккорды дожимаются в хвост, строки сверх шаблона не трогаются', () {
       const input = '''
 [Куплет 1]
 Am      Dm
@@ -1076,25 +1076,60 @@ G       C
 В лесу она росла
 
 [Куплет 2]
-Зимой и летом стройная
-Зелёная была
+Ночь прошла
+Была
 Третья строка без пары
 ''';
-      const expected = '''
+      final song = propagateChords(parseSong(input));
+      final t = song.tonic;
+      final second = song.sections[1];
+      expect(second.lines[0].tokens, [
+        syl('Ночь', chord: 'Am', tonic: t),
+        syl('прош', dash: SyllableDash.right),
+        syl('ла', dash: SyllableDash.left),
+        syl('', chord: 'Dm', tonic: t),
+      ]);
+      expect(second.lines[1].tokens, [
+        syl('Бы', chord: 'G', dash: SyllableDash.right, tonic: t),
+        syl('ла', dash: SyllableDash.left),
+        syl('', chord: 'C', tonic: t),
+      ]);
+      final beyond = second.lines[2].tokens.whereType<SyllableToken>();
+      expect(beyond.any((t) => t.chord != null), isFalse);
+    });
+
+    test('цель короче шаблона на несколько аккордов — ни один не теряется', () {
+      const input = '''
 [Куплет 1]
-Am      Dm
-В лесу родилась ёлочка
-G       C
-В лесу она росла
+Am        Dm        G         C
+Оранжевое небо, оранжевое солнце
 
 [Куплет 2]
-Am      Dm
-Зимой и летом стройная
-G       C
-Зелёная была
-Третья строка без пары
+Оранжевое небо,
 ''';
-      expect(propagated(input), renderSong(parseSong(expected)));
+      final song = propagateChords(parseSong(input));
+      final sylls = song.sections[1].lines.single.tokens
+          .whereType<SyllableToken>()
+          .toList();
+      final names = sylls
+          .map((t) => t.chord?.display(song.tonic))
+          .whereType<String>()
+          .toList();
+      expect(names, ['Am', 'Dm', 'G', 'C']);
+      expect(sylls.first.text, 'О');
+    });
+
+    test('повторный прогон идемпотентен при дожатых аккордах', () {
+      const input = '''
+[Куплет 1]
+Am      Dm      G       C
+В лесу родилась ёлочка
+
+[Куплет 2]
+Ночь прошла
+''';
+      final once = propagated(input);
+      expect(renderSong(propagateChords(parseSong(once))), once);
     });
 
     test('повторный прогон идемпотентен', () {

@@ -106,8 +106,27 @@ Line _applyLine(Line template, Line target) {
       tokens.add(t);
     }
   }
+  _appendLeftovers(layer, index, tokens);
   tokens.addAll(layer.tail);
   return Line(tokens, stanzaStart: target.stanzaStart);
+}
+
+void _appendLeftovers(_LineLayer layer, int lastSung, List<Token> tokens) {
+  var maxKey = lastSung;
+  for (final k in layer.slots.keys.followedBy(layer.gaps.keys)) {
+    if (k > maxKey) maxKey = k;
+  }
+  for (var k = lastSung; k <= maxKey; k++) {
+    for (final slot in layer.gaps[k] ?? const <_SlotChords>[]) {
+      tokens.add(SyllableToken('', chord: slot.first));
+      tokens.addAll(slot.extras);
+    }
+    final slot = layer.slots[k + 1];
+    if (slot != null) {
+      tokens.add(SyllableToken('', chord: slot.first));
+      tokens.addAll(slot.extras);
+    }
+  }
 }
 
 _LineLayer _layerOf(Line line) {
