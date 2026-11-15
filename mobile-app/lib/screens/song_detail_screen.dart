@@ -16,7 +16,6 @@ import '../services/song_listen_session.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
 import '../widgets/remote_mic_dialog.dart';
-import '../widgets/remote_mic_qr_panel.dart';
 import 'song_editor_screen.dart';
 
 /// Экран просмотра текста песни (моноширинный шрифт).
@@ -624,22 +623,8 @@ class _SongDetailScreenState extends State<SongDetailScreen>
 
   Widget _buildRemotePanel() {
     final session = _session;
-    if (!session.isEnabled || !_remoteFlow) return const SizedBox.shrink();
-    if (!session.isPaired) {
-      final port = session.port;
-      if (port == null) return const SizedBox.shrink();
-      return SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(color: Theme.of(context).dividerColor),
-            ),
-          ),
-          child: RemoteMicQrPanel(port: port, ips: session.ips),
-        ),
-      );
+    if (!session.isEnabled || !_remoteFlow || !session.isPaired) {
+      return const SizedBox.shrink();
     }
     return SafeArea(
       top: false,

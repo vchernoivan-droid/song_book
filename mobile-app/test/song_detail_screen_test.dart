@@ -569,7 +569,7 @@ void main() {
       expect(position.pixels, closeTo(0, 0.6));
     });
 
-    testWidgets('remote: пара → плей → слова → обрыв → QR → реконнект', (tester) async {
+    testWidgets('remote: пара → плей → слова → обрыв → без QR-панели → реконнект', (tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -645,8 +645,8 @@ void main() {
       await tester.pump();
       expect(find.text('Микрофон отключился'), findsOneWidget);
       expect(_cursorPaint(), findsNothing);
-      expect(find.byType(QrImageView), findsOneWidget);
-      expect(find.text('ws://192.168.1.2:54321'), findsOneWidget);
+      expect(find.byType(QrImageView), findsNothing);
+      expect(find.text('ws://192.168.1.2:54321'), findsNothing);
 
       remote.onPeerConnected?.call();
       await tester.pump();
