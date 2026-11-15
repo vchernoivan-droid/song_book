@@ -73,7 +73,7 @@ void main() {
 
     final c = await _connect(port);
     addTearDown(c.client.close);
-    expect(await c.client.next(), {'type': 'hello', 'v': 1});
+    expect(await c.client.next(), {'type': 'hello', 'v': 2});
   });
 
   test('ready → listen с локалью, words → onResult', () async {
@@ -112,7 +112,7 @@ void main() {
 
     final first = await _connect(listener.port!);
     addTearDown(first.client.close);
-    expect(await first.client.next(), {'type': 'hello', 'v': 1});
+    expect(await first.client.next(), {'type': 'hello', 'v': 2});
 
     final second = await _connect(listener.port!);
     expect(await second.client.next(), {'type': 'rejected'});
@@ -122,6 +122,46 @@ void main() {
     first.client.send({'type': 'ready'});
     listener.startListening();
     expect(await first.client.next(), {'type': 'listen', 'localeId': 'ru-RU'});
+  });
+
+  test('broadcastSong/broadcastPos доезжают до пира и пересылаются после реконнекта', () async {
+    final listener = RemoteSongListener(localeId: 'ru-RU', pingInterval: null);
+    addTearDown(listener.stop);
+    expect(await listener.start(), isTrue);
+    final port = listener.port!;
+
+    final c1 = await _connect(port);
+    addTearDown(c1.client.close);
+    await c1.client.next();
+    c1.client.send({'type': 'ready'});
+    await pumpEventQueue();
+
+    listener.broadcastSong(const ['куплет', 'припев'], pos: null);
+    expect(
+      await c1.client.next(),
+      {'type': 'song', 'lines': ['куплет', 'припев'], 'pos': null},
+    );
+
+    listener.broadcastPos(1);
+    expect(await c1.client.next(), {'type': 'pos', 'pos': 1});
+
+    listener.broadcastSong(null);
+    expect(await c1.client.next(), {'type': 'song', 'lines': null, 'pos': null});
+
+    listener.broadcastSong(const ['новая'], pos: 0);
+    await c1.client.next();
+    await c1.client.close();
+    await Future<void>.delayed(Duration.zero);
+
+    final c2 = await _connect(port);
+    addTearDown(c2.client.close);
+    await c2.client.next();
+    c2.client.send({'type': 'ready'});
+    await pumpEventQueue();
+    expect(
+      await c2.client.next(),
+      {'type': 'song', 'lines': ['новая'], 'pos': 0},
+    );
   });
 
   test('разрыв соединения → onPeerDisconnected', () async {

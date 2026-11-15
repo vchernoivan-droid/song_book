@@ -36,12 +36,14 @@ class RemoteSongListener implements SongListenSession {
   final void Function(String message)? onError;
   final Duration? pingInterval;
 
-  static const int protocolVersion = 1;
+  static const int protocolVersion = 2;
 
   HttpServer? _server;
   WebSocket? _peer;
   int? _port;
   List<String> _ips = const [];
+  List<String>? _songLines;
+  int? _songPos;
 
   int? get port => _port;
   List<String> get ipCandidates => _ips;
@@ -72,6 +74,17 @@ class RemoteSongListener implements SongListenSession {
       _sendToPeer({'type': 'listen', 'localeId': localeId ?? this.localeId});
 
   void stopListening() => _sendToPeer({'type': 'stop'});
+
+  void broadcastSong(List<String>? lines, {int? pos}) {
+    _songLines = lines;
+    _songPos = pos;
+    _sendToPeer({'type': 'song', 'lines': lines, 'pos': pos});
+  }
+
+  void broadcastPos(int? pos) {
+    _songPos = pos;
+    _sendToPeer({'type': 'pos', 'pos': pos});
+  }
 
   @override
   Future<void> stop() async {
@@ -170,6 +183,10 @@ class RemoteSongListener implements SongListenSession {
     switch (decoded['type']) {
       case 'ready':
         onPeerConnected?.call();
+        final lines = _songLines;
+        if (lines != null) {
+          _send(ws, {'type': 'song', 'lines': lines, 'pos': _songPos});
+        }
       case 'words':
         final text = decoded['text'];
         if (text is String && text.isNotEmpty) onResult?.call(text);

@@ -94,6 +94,8 @@ class _FakeRemoteListener extends RemoteSongListener {
   bool started = false;
   bool stopped = false;
   int listenSent = 0;
+  final songs = <(List<String>?, int?)>[];
+  final positions = <int?>[];
 
   @override
   Future<bool> start() async {
@@ -107,6 +109,13 @@ class _FakeRemoteListener extends RemoteSongListener {
 
   @override
   void startListening({String? localeId}) => listenSent++;
+
+  @override
+  void broadcastSong(List<String>? lines, {int? pos}) =>
+      songs.add((lines, pos));
+
+  @override
+  void broadcastPos(int? pos) => positions.add(pos);
 }
 
 void main() {
@@ -586,15 +595,19 @@ void main() {
       addTearDown(() => session.disable());
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: SongDetailScreen(
+        MaterialApp(home: Scaffold(body: SizedBox())),
+      );
+      final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+      nav.push(
+        MaterialPageRoute(
+          builder: (_) => SongDetailScreen(
             song: _song(_distinctLong()),
             listenLoggerFactory: _nullListenLogger,
             remoteSession: session,
           ),
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       await session.enable();
       await tester.pump();
@@ -620,6 +633,9 @@ void main() {
       await tester.pump(const Duration(seconds: 6));
       await tester.pump(const Duration(seconds: 6));
       expect(_cursorPaint(), findsOneWidget);
+      expect(remote.songs.first.$1, isNotNull);
+      expect(remote.songs.first.$1!.length, greaterThan(10));
+      expect(remote.positions.whereType<int>(), isNotEmpty);
       final position = tester
           .state<ScrollableState>(find.byType(Scrollable).first)
           .position;
@@ -640,6 +656,10 @@ void main() {
       }
       await tester.pump();
       expect(remote.listenSent, 2);
+
+      nav.pop();
+      await tester.pumpAndSettle();
+      expect(remote.songs.last.$1, isNull);
     });
   });
 }

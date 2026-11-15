@@ -74,5 +74,10 @@ class RemoteMicSession extends ChangeNotifier {
 
   void stopListening() => _listener?.stopListening();
 
+  void broadcastSong(List<String>? lines, {int? pos}) =>
+      _listener?.broadcastSong(lines, pos: pos);
+
+  void broadcastPos(int? pos) => _listener?.broadcastPos(pos);
+
   void note(String tag) => _listener?.note(tag);
 }

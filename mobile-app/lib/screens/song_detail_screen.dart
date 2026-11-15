@@ -84,13 +84,18 @@ class _SongDetailScreenState extends State<SongDetailScreen>
     session.onResult = _onRecognized;
     session.onError = _onSessionError;
     session.addListener(_onSessionChanged);
+    _singerLine.addListener(_onSingerLineChanged);
   }
+
+  void _onSingerLineChanged() => _session.broadcastPos(_singerLine.value);
 
   @override
   void dispose() {
+    _singerLine.removeListener(_onSingerLineChanged);
     if (_remoteFlow) {
       _session.stopListening();
     }
+    _session.broadcastSong(null);
     final session = _session;
     session.removeListener(_onSessionChanged);
     if (session.onResult == _onRecognized) session.onResult = null;
@@ -127,6 +132,7 @@ class _SongDetailScreenState extends State<SongDetailScreen>
       totalHeight: '\n'.allMatches(rendered.text).length * lineHeight,
     );
     _locator = LyricLocator(_transposedSong);
+    _session.broadcastSong(_layout.text.split('\n'), pos: _singerLine.value);
     WidgetsBinding.instance.addPostFrameCallback((_) => _remeasureRows());
   }
 
@@ -343,6 +349,12 @@ class _SongDetailScreenState extends State<SongDetailScreen>
   void _onSessionChanged() {
     if (!mounted) return;
     final session = _session;
+    if (session.isEnabled) {
+      session.broadcastSong(
+        _layout.text.split('\n'),
+        pos: _singerLine.value,
+      );
+    }
     if (_remoteFlow && _autoScroll && !session.isPaired) {
       _resumeOnReconnect = true;
       _stopAutoScroll(keepRemoteFlow: true);

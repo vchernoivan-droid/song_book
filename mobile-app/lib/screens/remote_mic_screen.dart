@@ -20,8 +20,40 @@ class RemoteMicScreen extends StatefulWidget {
 }
 
 class _RemoteMicScreenState extends State<RemoteMicScreen> {
-  static const int _protocolVersion = 1;
+  static const int _protocolVersion = 2;
   static const int _phraseTailChars = 500;
+
+  Widget _buildSongView() {
+    final lines = _songLines!;
+    return SingleChildScrollView(
+      controller: _songScroll,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < lines.length; i++)
+            Container(
+              key: _songKeys[i],
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: i == _songPos
+                  ? BoxDecoration(
+                      color: Colors.green.shade600,
+                      borderRadius: BorderRadius.circular(6),
+                    )
+                  : null,
+              child: Text(
+                lines[i].isEmpty ? ' ' : lines[i],
+                style: TextStyle(
+                  fontFamily: 'Roboto Mono',
+                  fontSize: 16,
+                  height: 1.4,
+                  color: i == _songPos ? Colors.white : null,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   String _phraseView() {
     if (_lastPhrase.length <= _phraseTailChars) {
@@ -37,6 +69,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   String _status = '';
   String _sttStatus = '';
   String _lastPhrase = '';
+  List<String>? _songLines;
+  int? _songPos;
+  final _songKeys = <GlobalKey>[];
+  final _songScroll = ScrollController();
   final _manualCtrl = TextEditingController();
 
   final _speech = SpeechToText();
@@ -82,6 +118,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _ws?.close();
     _speech.cancel();
     _manualCtrl.dispose();
+    _songScroll.dispose();
     super.dispose();
   }
 
@@ -235,7 +272,44 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       case 'stop':
         _log('stop от сервера');
         unawaited(_stopListening());
+      case 'song':
+        final lines = decoded['lines'];
+        if (lines is List) {
+          _log('song от сервера: ${lines.length} строк');
+          _songKeys
+            ..clear()
+            ..addAll([for (var i = 0; i < lines.length; i++) GlobalKey()]);
+          final pos = decoded['pos'];
+          setState(() {
+            _songLines = [for (final l in lines) l as String];
+            _songPos = pos is int ? pos : null;
+          });
+          _scrollSongTo(_songPos, jump: true);
+        } else {
+          _log('song от сервера: закрыт');
+          setState(() {
+            _songLines = null;
+            _songPos = null;
+          });
+        }
+      case 'pos':
+        final pos = decoded['pos'];
+        setState(() => _songPos = pos is int ? pos : null);
+        _scrollSongTo(_songPos);
     }
+  }
+
+  void _scrollSongTo(int? pos, {bool jump = false}) {
+    if (pos == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = pos < _songKeys.length ? _songKeys[pos].currentContext : null;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.3,
+        duration: jump ? Duration.zero : const Duration(milliseconds: 250),
+      );
+    });
   }
 
   Future<void> _startListening(String? localeId) async {
@@ -437,6 +511,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       _phase = _Phase.idle;
       _status = 'Компьютер отключился';
       _lastPhrase = '';
+      _songLines = null;
+      _songPos = null;
     });
   }
 
@@ -474,6 +550,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       _status = '';
       _sttStatus = '';
       _lastPhrase = '';
+      _songLines = null;
+      _songPos = null;
     });
   }
 
@@ -642,17 +720,19 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
                         context,
                       ).colorScheme.surfaceContainerHighest,
                     ),
-                    child: Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Text(
-                        _phraseView(),
-                        style: const TextStyle(
-                          fontFamily: 'Roboto Mono',
-                          fontSize: 16,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
+                    child: _songLines == null
+                        ? Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Text(
+                              _phraseView(),
+                              style: const TextStyle(
+                                fontFamily: 'Roboto Mono',
+                                fontSize: 16,
+                                height: 1.4,
+                              ),
+                            ),
+                          )
+                        : _buildSongView(),
                   ),
                 ),
               ),
