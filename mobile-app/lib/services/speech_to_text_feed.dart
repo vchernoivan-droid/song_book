@@ -13,7 +13,7 @@ final class SpeechToTextFeed implements HeardFeed {
   final SpeechToText _speech = SpeechToText();
   final _events = StreamController<HeardEvent>.broadcast();
   final _statuses = StreamController<String>.broadcast();
-  final _errors = StreamController<String>.broadcast();
+  final _errors = StreamController<HeardError>.broadcast();
   final _levels = StreamController<double>.broadcast();
   bool _ready = false;
 
@@ -24,7 +24,7 @@ final class SpeechToTextFeed implements HeardFeed {
   Stream<String> get statuses => _statuses.stream;
 
   @override
-  Stream<String> get errors => _errors.stream;
+  Stream<HeardError> get errors => _errors.stream;
 
   @override
   Stream<double> get levels => _levels.stream;
@@ -35,7 +35,9 @@ final class SpeechToTextFeed implements HeardFeed {
     try {
       _ready = await _speech.initialize(
         onStatus: _statuses.add,
-        onError: (e) => _errors.add(e.errorMsg),
+        onError: (e) => _errors.add(
+          HeardError(message: e.errorMsg, permanent: e.permanent),
+        ),
       );
     } catch (_) {
       _ready = false;
@@ -44,7 +46,7 @@ final class SpeechToTextFeed implements HeardFeed {
   }
 
   @override
-  Future<void> start(String? localeId) async {
+  Future<void> start(String? localeId, {bool? preferOffline}) async {
     await _speech.listen(
       onResult: (r) => _events.add(HeardEvent(
         sessionText: r.recognizedWords.trim(),
@@ -58,7 +60,7 @@ final class SpeechToTextFeed implements HeardFeed {
         listenMode: ListenMode.dictation,
         localeId: localeId,
         pauseFor: pauseFor,
-        onDevice: onDevice,
+        onDevice: preferOffline ?? onDevice,
       ),
     );
   }

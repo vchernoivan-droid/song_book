@@ -3,13 +3,20 @@ import 'dart:async';
 abstract interface class HeardFeed {
   Stream<HeardEvent> get events;
   Stream<String> get statuses;
-  Stream<String> get errors;
+  Stream<HeardError> get errors;
   Stream<double> get levels;
   Future<bool> initialize();
-  Future<void> start(String? localeId);
+  Future<void> start(String? localeId, {bool? preferOffline});
   Future<void> stop();
   Future<void> reset();
   Future<void> cancel();
+}
+
+final class HeardError {
+  final String message;
+  final bool permanent;
+
+  const HeardError({required this.message, required this.permanent});
 }
 
 final class HeardEvent {
@@ -40,7 +47,7 @@ final class ReplayHeardFeed implements HeardFeed {
   Stream<String> get statuses => const Stream.empty();
 
   @override
-  Stream<String> get errors => const Stream.empty();
+  Stream<HeardError> get errors => const Stream.empty();
 
   @override
   Stream<double> get levels => const Stream.empty();
@@ -49,7 +56,7 @@ final class ReplayHeardFeed implements HeardFeed {
   Future<bool> initialize() async => true;
 
   @override
-  Future<void> start(String? localeId) async {
+  Future<void> start(String? localeId, {bool? preferOffline}) async {
     for (final event in script) {
       _events.add(event);
       if (delay > Duration.zero) await Future<void>.delayed(delay);

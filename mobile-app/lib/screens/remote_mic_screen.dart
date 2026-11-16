@@ -156,7 +156,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       widget.feed ?? SpeechToTextFeed(onDevice: true, pauseFor: const Duration(seconds: 10));
   StreamSubscription<HeardEvent>? _feedSub;
   StreamSubscription<String>? _statusSub;
-  StreamSubscription<String>? _errorSub;
+  StreamSubscription<HeardError>? _errorSub;
   StreamSubscription<double>? _levelSub;
   DateTime _lastLevelAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _listeningWanted = false;
@@ -164,6 +164,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
   Timer? _restartTimer;
   Timer? _startWatchdog;
   int _startAttempts = 0;
+  bool _listeningConfirmed = false;
+  int _quickDeaths = 0;
+  DateTime? _listenStartedAt;
+  bool _networkFallbackUsed = false;
   WebSocket? _ws;
   StreamSubscription<dynamic>? _wsSub;
   bool _closed = false;
@@ -351,6 +355,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
         _log('listen от сервера: locale=${decoded['localeId']}');
         _stitcher.clearFinals();
         _startAttempts = 0;
+        _quickDeaths = 0;
+        _networkFallbackUsed = false;
         unawaited(_startListening(decoded['localeId'] as String?));
       case 'stop':
         _log('stop от сервера');
@@ -392,13 +398,16 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     });
   }
 
-  Future<void> _startListening(String? localeId) async {
+  Future<void> _startListening(String? localeId, {bool? preferOffline}) async {
     _activeLocaleId = localeId;
     _listeningWanted = true;
+    _listeningConfirmed = false;
     try {
-      await _feed.start(localeId);
-      _log('listen запущен: locale=$localeId');
+      await _feed.start(localeId, preferOffline: preferOffline);
+      _log('listen запущен: locale=$localeId'
+          '${preferOffline == false ? ' (сетевой)' : ''}');
       _stitcher.reset();
+      _listenStartedAt = DateTime.now();
       _armStartWatchdog();
       unawaited(WakelockPlus.enable());
       if (mounted) setState(() => _phase = _Phase.listening);
@@ -419,16 +428,8 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   Future<void> _onStartStalled() async {
     if (!_listeningWanted || _ws == null || _closed) return;
+    if (_listeningConfirmed) return;
     _startAttempts++;
-    final reinit = _startAttempts >= 2;
-    _log('listen не поднялся ($_startAttempts): '
-        'cancel${reinit ? ' + init' : ''} + повтор');
-    await _feed.reset();
-    if (reinit) {
-      final ok = await _feed.initialize();
-      if (!ok) _log('init после сброса не удался');
-    }
-    if (!_listeningWanted || _ws == null || _closed) return;
     if (_startAttempts > 3) {
       _log('listen не поднялся за $_startAttempts попыток — сдаюсь');
       _send({'type': 'error', 'message': 'Распознавание не стартует — перезапустите приложение'});
@@ -437,9 +438,24 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
       }
       return;
     }
+    final reinit = _startAttempts >= 2;
+    _log('listen не поднялся ($_startAttempts): '
+        'cancel${reinit ? ' + init' : ''} + повтор');
+    await _feed.reset();
+    if (reinit) {
+      final ok = await _feed.initialize();
+      if (!ok) _log('init после сброса не удался');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!_listeningWanted || _ws == null || _closed) return;
     try {
-      await _feed.start(_activeLocaleId);
-      _log('listen запущен: locale=$_activeLocaleId');
+      await _feed.start(
+        _activeLocaleId,
+        preferOffline: _networkFallbackUsed ? false : null,
+      );
+      _log('listen запущен: locale=$_activeLocaleId'
+          '${_networkFallbackUsed ? ' (сетевой)' : ''}');
+      _listenStartedAt = DateTime.now();
       _armStartWatchdog();
     } catch (e) {
       _log('listen упал: $e');
@@ -455,6 +471,7 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _startWatchdog?.cancel();
     _startWatchdog = null;
     _startAttempts = 0;
+    _quickDeaths = 0;
     await _feed.stop();
     if (mounted && _phase == _Phase.listening) {
       setState(() => _phase = _Phase.connected);
@@ -486,6 +503,10 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     _log('status: $status');
     if (mounted) setState(() => _sttStatus = status);
     if (status == 'listening') {
+      if (!_listeningConfirmed) {
+        _listeningConfirmed = true;
+        _listenStartedAt = DateTime.now();
+      }
       _startWatchdog?.cancel();
       _startWatchdog = null;
       _startAttempts = 0;
@@ -496,10 +517,39 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
     }
   }
 
-  void _onFeedError(String message) {
-    _log('stt error: $message');
-    if (mounted) setState(() => _sttStatus = message);
-    _send({'type': 'error', 'message': message});
+  void _onFeedError(HeardError error) {
+    _log('stt error: ${error.message}');
+    if (mounted) setState(() => _sttStatus = error.message);
+    _send({'type': 'error', 'message': error.message});
+    _startWatchdog?.cancel();
+    _startWatchdog = null;
+    if (error.permanent &&
+        !_listeningConfirmed &&
+        !_networkFallbackUsed &&
+        _listeningWanted &&
+        _ws != null &&
+        !_closed) {
+      _networkFallbackUsed = true;
+      _log('постоянная ошибка (${error.message}) — '
+          'пробую сетевой распознаватель (с гудками)');
+      unawaited(_recoverWithNetworkRecognizer());
+    }
+  }
+
+  Future<void> _recoverWithNetworkRecognizer() async {
+    await _feed.reset();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!_listeningWanted || _ws == null || _closed) return;
+    try {
+      await _feed.start(_activeLocaleId, preferOffline: false);
+      _log('listen запущен: locale=$_activeLocaleId (сетевой)');
+      _listenStartedAt = DateTime.now();
+      _armStartWatchdog();
+    } catch (e) {
+      _log('listen упал: $e');
+      _send({'type': 'error', 'message': 'Не удалось начать прослушивание'});
+      if (mounted) setState(() => _sttStatus = 'не запустилось: $e');
+    }
   }
 
   void _onFeedLevel(double level) {
@@ -511,9 +561,31 @@ class _RemoteMicScreenState extends State<RemoteMicScreen> {
 
   void _scheduleRestart(String reason) {
     if (!_listeningWanted || _ws == null || _closed) return;
-    _log('рестарт прослушивания: $reason');
+    final lifetime = _listenStartedAt == null
+        ? null
+        : DateTime.now().difference(_listenStartedAt!);
+    if (lifetime != null && lifetime.inSeconds < 2) {
+      _quickDeaths++;
+    } else {
+      _quickDeaths = 0;
+    }
+    if (_quickDeaths >= 3) {
+      _log('распознаватель не держит сессии — сдаюсь');
+      _send({'type': 'error', 'message': 'Распознавание не стартует — перезапустите приложение'});
+      _listeningWanted = false;
+      unawaited(_feed.stop());
+      if (mounted) {
+        setState(() {
+          _sttStatus = 'не поднялся — перезапусти приложение';
+          if (_phase == _Phase.listening) _phase = _Phase.connected;
+        });
+      }
+      return;
+    }
+    final delay = _quickDeaths == 0 ? 300 : (_quickDeaths == 1 ? 1000 : 3000);
+    _log('рестарт прослушивания: $reason (пауза $delayмс)');
     _restartTimer?.cancel();
-    _restartTimer = Timer(const Duration(milliseconds: 300), () {
+    _restartTimer = Timer(Duration(milliseconds: delay), () {
       if (!_listeningWanted || _ws == null || _closed) return;
       unawaited(_restartListening());
     });

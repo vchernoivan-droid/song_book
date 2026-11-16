@@ -90,7 +90,7 @@ class SongListenLogger implements SongListenSession {
 
   void _onStatus(String status) => _write('status: $status');
 
-  void _onError(String message) => _write('error: $message');
+  void _onError(HeardError error) => _write('error: ${error.message}');
 
   void _onSoundLevel(double level) {
     final now = DateTime.now();
