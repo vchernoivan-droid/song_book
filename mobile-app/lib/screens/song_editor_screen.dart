@@ -5,6 +5,7 @@ import '../models/song_defaults.dart';
 import '../services/song_highlight.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
+import '../services/tag_store.dart';
 
 /// Если [song] == null — создаём новую, иначе редактируем существующую.
 class SongEditorScreen extends StatefulWidget {
@@ -14,12 +15,16 @@ class SongEditorScreen extends StatefulWidget {
   /// Применяется только если [song] == null.
   final String? prefillTitle;
   final String? prefillContent;
+  final SongStorage? storage;
+  final TagStore? tagStore;
 
   const SongEditorScreen({
     super.key,
     this.song,
     this.prefillTitle,
     this.prefillContent,
+    this.storage,
+    this.tagStore,
   });
 
   @override
@@ -45,7 +50,8 @@ class _SongContentController extends TextEditingController {
 }
 
 class _SongEditorScreenState extends State<SongEditorScreen> {
-  final _storage = SongStorage();
+  late final SongStorage _storage = widget.storage ?? SongStorage();
+  late final TagStore _tags = widget.tagStore ?? TagStore();
   late final TextEditingController _titleCtrl;
   late final TextEditingController _contentCtrl = _SongContentController();
   late final String _origTitle;
@@ -103,6 +109,10 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         ),
         oldFileName: widget.song?.fileName,
       );
+
+      if (widget.song != null && widget.song!.fileName != fileName) {
+        await _tags.renameSong(widget.song!.fileName!, fileName);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop(
