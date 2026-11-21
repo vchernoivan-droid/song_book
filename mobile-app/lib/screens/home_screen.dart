@@ -5,6 +5,7 @@ import '../models/song.dart';
 import '../services/browser_launcher.dart';
 import '../services/deepseek_credentials.dart';
 import '../services/song_storage.dart';
+import '../services/tag_store.dart';
 import 'deepseek_settings_screen.dart';
 import 'deepseek_song_screen.dart';
 import '../widgets/remote_mic_dialog.dart';
@@ -17,17 +18,23 @@ import 'song_editor_screen.dart';
 /// реализованная как [ListTile], чтобы её иконки выравнивались с
 /// иконками строк песен автоматически.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final SongStorage? storage;
+  final TagStore? tagStore;
+
+  const HomeScreen({super.key, this.storage, this.tagStore});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _storage = SongStorage();
+  late final SongStorage _storage = widget.storage ?? SongStorage();
+  late final TagStore _tags = widget.tagStore ?? TagStore();
   final _searchCtrl = TextEditingController();
 
   List<SongWithPreview> _songs = [];
+  Map<String, List<String>> _tagsMap = {};
+  String? _activeTag;
   bool _loading = true;
   bool _deepseekConfigured = false;
 
@@ -49,25 +56,41 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     await _storage.seedIfFirstRun();
     final songs = await _storage.listSongs();
+    final tagsMap = await _tags.all();
     final ds = await DeepSeekCredentials.isConfigured();
     if (!mounted) return;
     setState(() {
       _songs = songs
           .map((x) => SongWithPreview(preview: x.preview, song: x))
           .toList();
+      _applyTagsMap(tagsMap);
       _loading = false;
       _deepseekConfigured = ds;
     });
   }
 
+  void _applyTagsMap(Map<String, List<String>> tagsMap) {
+    _tagsMap = tagsMap;
+    if (_activeTag != null &&
+        !tagsMap.values.any((t) => t.contains(_activeTag))) {
+      _activeTag = null;
+    }
+  }
+
   String get _q => _query.toLowerCase().trim();
 
   List<SongWithPreview> get _filtered {
+    final byTag = _activeTag == null
+        ? _songs
+        : _songs
+            .where(
+                (x) => _tagsMap[x.song.fileName]?.contains(_activeTag) ?? false)
+            .toList();
     if (_q.isEmpty) {
-      return _songs;
+      return byTag;
     }
     final rx = RegExp("^([^\n]*${RegExp.escape(_q)}[^\n]*)\$", multiLine: true);
-    return _songs
+    return byTag
         .map((x) {
           var match = rx.firstMatch(x.song.content.toLowerCase());
           return SongWithPreview(
@@ -174,6 +197,18 @@ class _HomeScreenState extends State<HomeScreen> {
             : Column(
                 children: [
                   _buildHeader(),
+                  if (_activeTag != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: InputChip(
+                          label: Text(_activeTag!),
+                          deleteIcon: const Icon(Icons.close),
+                          onDeleted: () => setState(() => _activeTag = null),
+                        ),
+                      ),
+                    ),
                   const Divider(height: 1),
                   Expanded(
                     child: filtered.isEmpty
@@ -249,6 +284,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onDismissed: (_) async {
               setState(() => _songs.remove(item));
               await _storage.deleteSong(item.song.fileName);
+              await _tags.deleteSong(item.song.fileName);
+              final tagsMap = await _tags.all();
+              if (!mounted) return;
+              setState(() => _applyTagsMap(tagsMap));
             },
             child: ListTile(
               leading: const Icon(Icons.music_note_outlined),
@@ -257,12 +296,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
 
-              subtitle: item.preview == null
+              subtitle: (item.preview == null &&
+                      (_tagsMap[item.song.fileName] ?? []).isEmpty)
                   ? null
-                  : Text(
-                      item.preview!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (item.preview != null)
+                          Text(
+                            item.preview!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 0,
+                          children: [
+                            for (final tag
+                                in _tagsMap[item.song.fileName] ?? [])
+                              InputChip(
+                                label: Text(tag),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                onPressed: () => setState(
+                                  () => _activeTag = tag,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
               onTap: () => _openSong(item.song),
               trailing: IconButton(
