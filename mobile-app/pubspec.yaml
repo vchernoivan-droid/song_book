@@ -45,6 +45,9 @@ dependencies:
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.4.2
   wakelock_plus: ^1.8.2
+  drift: ^2.35.4
+  sqlite3_flutter_libs: ^0.6.0+eol
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +59,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  drift_dev: ^2.35.3
+  build_runner: ^2.4.15
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
