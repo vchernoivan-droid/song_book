@@ -179,6 +179,35 @@ class _HomeScreenState extends State<HomeScreen> {
     _load();
   }
 
+  Widget _tagPill(String label, {VoidCallback? onTap, VoidCallback? onDelete}) {
+    return Material(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label),
+              if (onDelete != null) ...[
+                const SizedBox(width: 2),
+                GestureDetector(
+                  onTap: onDelete,
+                  child: const Icon(Icons.close, size: 14),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
@@ -202,10 +231,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: Align(
                         alignment: Alignment.centerLeft,
-                        child: InputChip(
-                          label: Text(_activeTag!),
-                          deleteIcon: const Icon(Icons.close),
-                          onDeleted: () => setState(() => _activeTag = null),
+                        child: _tagPill(
+                          _activeTag!,
+                          onDelete: () => setState(() => _activeTag = null),
                         ),
                       ),
                     ),
@@ -299,33 +327,33 @@ class _HomeScreenState extends State<HomeScreen> {
               subtitle: (item.preview == null &&
                       (_tagsMap[item.song.fileName] ?? []).isEmpty)
                   ? null
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (item.preview != null)
-                          Text(
-                            item.preview!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        Wrap(
-                          spacing: 4,
-                          runSpacing: 0,
-                          children: [
-                            for (final tag
-                                in _tagsMap[item.song.fileName] ?? [])
-                              InputChip(
-                                label: Text(tag),
-                                visualDensity: VisualDensity.compact,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                onPressed: () => setState(
-                                  () => _activeTag = tag,
+                  : Text.rich(
+                      TextSpan(
+                        children: [
+                          if (item.preview != null)
+                            TextSpan(text: item.preview!),
+                          if (item.preview != null &&
+                              (_tagsMap[item.song.fileName] ?? [])
+                                  .isNotEmpty)
+                            const WidgetSpan(
+                              child: SizedBox(width: 6),
+                            ),
+                          for (final tag
+                              in _tagsMap[item.song.fileName] ?? [])
+                            WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 2),
+                                child: _tagPill(
+                                  tag,
+                                  onTap: () => setState(
+                                    () => _activeTag = tag,
+                                  ),
                                 ),
                               ),
-                          ],
-                        ),
-                      ],
+                            ),
+                        ],
+                      ),
                     ),
               onTap: () => _openSong(item.song),
               trailing: IconButton(
