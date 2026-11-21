@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:song_book/models/song.dart';
 import 'package:song_book/screens/song_detail_screen.dart';
 import 'package:song_book/services/song_listen_logger.dart';
+import 'package:song_book/services/tag_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:song_book/services/remote_song_listener.dart';
 import 'package:song_book/services/remote_mic_session.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -118,6 +120,41 @@ class _FakeRemoteListener extends RemoteSongListener {
   void broadcastPos(int? pos) => positions.add(pos);
 }
 
+class _SongDetailPage {
+  final WidgetTester _tester;
+  final Song song;
+  final SongListenLoggerFactory listenLoggerFactory;
+  final TagStore tagStore;
+
+  _SongDetailPage(
+    this._tester, {
+    required this.song,
+    required this.listenLoggerFactory,
+    required this.tagStore,
+  });
+
+  Future<void> open() async {
+    await _tester.pumpWidget(MaterialApp(
+      home: SongDetailScreen(
+        song: song,
+        listenLoggerFactory: listenLoggerFactory,
+        tagStore: tagStore,
+      ),
+    ));
+    await _tester.pumpAndSettle();
+  }
+
+  Future<void> openTags() async {
+    await _tester.tap(find.byTooltip('Тэги'));
+    await _tester.pumpAndSettle();
+  }
+
+  Future<void> checkTag(String name) async {
+    await _tester.tap(find.text(name));
+    await _tester.pumpAndSettle();
+  }
+}
+
 void main() {
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -128,6 +165,25 @@ void main() {
       if (call.method == 'getApplicationDocumentsDirectory') return docs.path;
       return null;
     });
+  });
+
+  testWidgets('кнопка тэгов вешает тэг песне', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await TagStore.seeded({
+      'b.txt': ['Кемпинг'],
+    });
+    final page = _SongDetailPage(
+      tester,
+      song: _song(_distinctLines()),
+      listenLoggerFactory: _nullListenLogger,
+      tagStore: store,
+    );
+
+    await page.open();
+    await page.openTags();
+    await page.checkTag('Кемпинг');
+
+    expect(await store.tagsOf('test.txt'), ['Кемпинг']);
   });
 
   testWidgets('скролл следует за стрелкой до конца и не выходит за max', (tester) async {

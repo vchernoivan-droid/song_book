@@ -15,6 +15,8 @@ import '../services/song_listen_logger.dart';
 import '../services/song_listen_session.dart';
 import '../services/song_parser.dart';
 import '../services/song_storage.dart';
+import '../services/tag_store.dart';
+import '../widgets/manage_tags_dialog.dart';
 import '../widgets/remote_mic_dialog.dart';
 import 'song_editor_screen.dart';
 
@@ -26,11 +28,13 @@ class SongDetailScreen extends StatefulWidget {
   final Song song;
   final SongListenLoggerFactory? listenLoggerFactory;
   final RemoteMicSession? remoteSession;
+  final TagStore? tagStore;
   const SongDetailScreen({
     super.key,
     required this.song,
     this.listenLoggerFactory,
     this.remoteSession,
+    this.tagStore,
   });
 
   @override
@@ -40,6 +44,7 @@ class SongDetailScreen extends StatefulWidget {
 class _SongDetailScreenState extends State<SongDetailScreen>
     with SingleTickerProviderStateMixin {
   final _storage = SongStorage();
+  late final TagStore _tags = widget.tagStore ?? TagStore();
   late Song _song = widget.song;
   late int _semitones = ((_song.transpose % 12) + 12) % 12;
   late int _fontSize = _song.fontSize;
@@ -717,6 +722,18 @@ class _SongDetailScreenState extends State<SongDetailScreen>
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.keyboard_arrow_up),
             onPressed: () => _shiftTo(_semitones + 1),
+          ),
+          IconButton(
+            tooltip: 'Тэги',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.sell_outlined),
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => ManageTagsDialog(
+                tagStore: _tags,
+                songFileName: _song.fileName,
+              ),
+            ),
           ),
           IconButton(
             tooltip: 'Редактировать',
