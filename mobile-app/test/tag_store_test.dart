@@ -163,31 +163,6 @@ void main() {
     expect(await store.all(), {});
   });
 
-  test('renameSong переносит тэги на новое имя', () async {
-    final store = await TagStore.seeded({
-      'Old.txt': ['Дом'],
-    });
-
-    await store.renameSong('Old.txt', 'New.txt');
-
-    expect(await store.all(), {
-      'New.txt': ['Дом'],
-    });
-  });
-
-  test('renameSong при занятой цели мержит тэги', () async {
-    final store = await TagStore.seeded({
-      'Old.txt': ['Дом'],
-      'New.txt': ['Кемпинг'],
-    });
-
-    await store.renameSong('Old.txt', 'New.txt');
-
-    expect(await store.all(), {
-      'New.txt': ['Дом', 'Кемпинг'],
-    });
-  });
-
   test('deleteSong удаляет запись песни', () async {
     final store = await TagStore.seeded({
       'a.txt': ['Дом'],

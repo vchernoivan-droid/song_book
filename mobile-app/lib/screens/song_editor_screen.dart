@@ -110,10 +110,6 @@ class _SongEditorScreenState extends State<SongEditorScreen> {
         oldFileName: widget.song?.fileName,
       );
 
-      if (widget.song != null && widget.song!.fileName != fileName) {
-        await _tags.renameSong(widget.song!.fileName!, fileName);
-      }
-
       if (!mounted) return;
       Navigator.of(context).pop(
         Song(

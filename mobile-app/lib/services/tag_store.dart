@@ -65,15 +65,6 @@ class TagStore {
     await prefs.setString(_dataKey, jsonEncode(data));
   }
 
-  Future<void> renameSong(String oldFileName, String newFileName) async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = await all();
-    final tags = data.remove(oldFileName);
-    if (tags == null) return;
-    data[newFileName] = _normalize([...?data[newFileName], ...tags]);
-    await prefs.setString(_dataKey, jsonEncode(data));
-  }
-
   Future<void> deleteSong(String fileName) async {
     final prefs = await SharedPreferences.getInstance();
     final data = await all();
